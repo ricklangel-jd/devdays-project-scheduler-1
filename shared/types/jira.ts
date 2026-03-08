@@ -108,6 +108,7 @@ export interface JiraSearchResponse {
   total: number;
   maxResults: number;
   startAt: number;
+  nextPageToken?: string;
 }
 
 export interface JiraProject {

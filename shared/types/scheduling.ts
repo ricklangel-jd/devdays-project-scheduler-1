@@ -131,6 +131,7 @@ export interface SchedulingInput {
   selectedSprintIds?: number[]; // Sprint IDs selected for scheduling (used to determine Previous/Future blocks)
   doneStatuses?: string[]; // Status names from board config that indicate "done" (from statusCategory.key === 'done')
   activeSprints?: JiraSprint[]; // All active sprints from the board (for locking tickets even if sprint not selected)
+  ignoreCapacity?: boolean; // When true, skip capacity-based scheduling (used by Sprint View)
 }
 
 /**

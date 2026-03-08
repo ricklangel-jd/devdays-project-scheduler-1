@@ -229,6 +229,39 @@ export const mapToBoards = (boards: JiraBoardResponse[]): JiraBoard[] =>
   boards.map(mapToBoard);
 
 /**
+ * Extract epic key from a JIRA issue response
+ * Checks parent field first, then epic link custom field
+ */
+export const extractEpicKey = (
+  issue: JiraIssueResponse,
+  fieldConfig: FieldConfig
+): string | null => {
+  const epicLinkField = issue.fields[fieldConfig.epicLink] as string | { key?: string } | null | undefined;
+  let epicKey: string | null = issue.fields.parent?.key ?? null;
+  if (!epicKey && epicLinkField) {
+    if (typeof epicLinkField === 'string') {
+      epicKey = epicLinkField;
+    } else if (typeof epicLinkField === 'object' && 'key' in epicLinkField && typeof epicLinkField.key === 'string') {
+      epicKey = epicLinkField.key;
+    }
+  }
+  return epicKey;
+};
+
+/**
+ * Map a JIRA issue to a JiraTicket, auto-discovering the epic key
+ * Returns the ticket and the discovered epic key (null if no epic)
+ */
+export const mapToTicketAutoEpic = (
+  issue: JiraIssueResponse,
+  fieldConfig: FieldConfig
+): { ticket: JiraTicket; epicKey: string | null } => {
+  const epicKey = extractEpicKey(issue, fieldConfig);
+  const ticket = mapToTicket(issue, epicKey ?? '__NO_EPIC__', fieldConfig);
+  return { ticket, epicKey };
+};
+
+/**
  * Map a JIRA issue to an OtherTicket (not in selected epics)
  */
 export const mapToOtherTicket = (
@@ -240,16 +273,7 @@ export const mapToOtherTicket = (
   const devDaysValue = issue.fields[fieldConfig.devDays];
   const hasEstimate = typeof devDaysValue === 'number' && devDaysValue > 0;
 
-  // Extract epic key from either parent or epic link field
-  const epicLinkField = issue.fields[fieldConfig.epicLink] as string | { key?: string } | null | undefined;
-  let epicKey: string | null = issue.fields.parent?.key ?? null;
-  if (!epicKey && epicLinkField) {
-    if (typeof epicLinkField === 'string') {
-      epicKey = epicLinkField;
-    } else if (typeof epicLinkField === 'object' && 'key' in epicLinkField && typeof epicLinkField.key === 'string') {
-      epicKey = epicLinkField.key;
-    }
-  }
+  const epicKey = extractEpicKey(issue, fieldConfig);
 
   return {
     key: issue.key,

@@ -15,6 +15,15 @@ import type {
 import { parseDate, isWeekend } from '@/shared/utils/dates';
 
 /**
+ * Safe accessor for dailyCapacity array - returns undefined if index is out of bounds
+ * instead of throwing. Callers should check the result before accessing properties.
+ */
+const safeDay = (dailyCapacity: DayCapacity[], index: number): DayCapacity | undefined => {
+  if (index < 0 || index >= dailyCapacity.length) return undefined;
+  return dailyCapacity[index];
+};
+
+/**
  * Helper to get actual date from dailyCapacity array
  * endDay is exclusive, so endDate is the day before endDay (the last actual work day)
  */
@@ -526,7 +535,7 @@ const findSlotInSpecificSprint = (
       // Check if all days have capacity
       let allHaveCapacity = true;
       for (let d = currentDayIndex; d < currentDayIndex + ticketDevDays; d++) {
-        if (dailyCapacity[d].remainingCapacity <= 0) {
+        if (d >= dailyCapacity.length || dailyCapacity[d].remainingCapacity <= 0) {
           allHaveCapacity = false;
           break;
         }
@@ -781,7 +790,11 @@ const partitionEpicTickets = (
  * Slots tickets into sprints while respecting capacity and sprint boundaries
  */
 export const scheduleTickets = (input: SchedulingInput): GanttData => {
-  const { epics, tickets, sprints, sprintCapacities, maxDevelopers, selectedSprintIds, doneStatuses, activeSprints } = input;
+  const { epics, tickets, sprints, sprintCapacities, selectedSprintIds, doneStatuses, activeSprints, ignoreCapacity } = input;
+
+  // When ignoreCapacity is true (Sprint View), use very large capacity so scheduling
+  // is not constrained by capacity - tickets are simply placed in their sprints.
+  const effectiveMaxDevelopers = ignoreCapacity ? 9999 : input.maxDevelopers;
 
   // Build set of active sprint IDs (includes all active sprints, even if not selected)
   const activeSprintIds = new Set<number>(activeSprints?.map(s => s.id) ?? []);
@@ -801,8 +814,8 @@ export const scheduleTickets = (input: SchedulingInput): GanttData => {
       const capacity = sprintCapacities.find(sc => sc.sprintId === sprint.id);
       return {
         ...sprint,
-        devDaysCapacity: capacity?.devDaysCapacity ?? maxDevelopers,
-        remainingCapacity: capacity?.devDaysCapacity ?? maxDevelopers,
+        devDaysCapacity: ignoreCapacity ? 9999 : (capacity?.devDaysCapacity ?? effectiveMaxDevelopers),
+        remainingCapacity: ignoreCapacity ? 9999 : (capacity?.devDaysCapacity ?? effectiveMaxDevelopers),
       };
     })
     .filter(s => s.startDate && s.endDate)
@@ -818,8 +831,17 @@ export const scheduleTickets = (input: SchedulingInput): GanttData => {
   // Project start date is first sprint start
   const projectStartDate = parseDate(sprintsWithCapacity[0].startDate);
 
-  // Build daily capacity map
-  const dailyCapacity = buildDailyCapacityMap(sprintsWithCapacity, maxDevelopers, sprintCapacities);
+  // Build daily capacity map (use effectiveMaxDevelopers so ignoreCapacity gets large values)
+  const dailyCapacity = buildDailyCapacityMap(sprintsWithCapacity, effectiveMaxDevelopers, ignoreCapacity
+    ? sprintCapacities.map(sc => ({ ...sc, devDaysCapacity: 9999 }))
+    : sprintCapacities
+  );
+
+  if (dailyCapacity.length === 0) {
+    throw new Error(
+      `No work days found in selected sprints. Sprints: ${sprintsWithCapacity.map(s => `${s.name} (${s.startDate} - ${s.endDate})`).join(', ')}`
+    );
+  }
 
   // Debug: Log sprint boundaries
   console.log('=== SPRINT BOUNDARIES ===');

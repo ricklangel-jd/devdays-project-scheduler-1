@@ -115,8 +115,9 @@ export class JiraClient {
 
   /**
    * Search for issues using JQL (uses new /search/jql POST endpoint)
+   * Accepts optional nextPageToken for cursor-based pagination.
    */
-  searchIssues = async (jql: string, fields: string[] = []): Promise<JiraSearchResponse> => {
+  searchIssues = async (jql: string, fields: string[] = [], nextPageToken?: string): Promise<JiraSearchResponse> => {
     const defaultFields = [
       'summary',
       'status',
@@ -133,14 +134,55 @@ export class JiraClient {
 
     const allFields = [...new Set([...defaultFields, ...fields])];
 
+    const body: Record<string, unknown> = {
+      jql,
+      fields: allFields,
+      maxResults: 100,
+    };
+    if (nextPageToken) {
+      body.nextPageToken = nextPageToken;
+    }
+
     return this.fetch<JiraSearchResponse>('/rest/api/3/search/jql', {
       method: 'POST',
-      body: JSON.stringify({
-        jql,
-        fields: allFields,
-        maxResults: 100,
-      }),
+      body: JSON.stringify(body),
     });
+  };
+
+  /**
+   * Search for all issues matching JQL, auto-paginating through results
+   * Uses cursor-based pagination via nextPageToken.
+   */
+  searchAllIssues = async (jql: string, fields: string[] = []): Promise<JiraSearchResponse> => {
+    const allIssues: JiraIssueResponse[] = [];
+    let nextPageToken: string | undefined;
+
+    while (true) {
+      const response = await this.searchIssues(jql, fields, nextPageToken);
+      allIssues.push(...response.issues);
+
+      if (!response.nextPageToken || response.issues.length === 0) {
+        break;
+      }
+
+      nextPageToken = response.nextPageToken;
+    }
+
+    return {
+      issues: allIssues,
+      total: allIssues.length,
+      maxResults: allIssues.length,
+      startAt: 0,
+    };
+  };
+
+  /**
+   * Get all tickets in the specified sprints
+   */
+  getSprintTickets = async (sprintIds: number[]): Promise<JiraSearchResponse> => {
+    const sprintList = sprintIds.join(', ');
+    const jql = `sprint in (${sprintList}) ORDER BY key ASC`;
+    return this.searchAllIssues(jql);
   };
 
   /**
