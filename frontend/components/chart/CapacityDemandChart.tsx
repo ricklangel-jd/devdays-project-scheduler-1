@@ -24,12 +24,12 @@ interface CapacityDemandChartProps {
 }
 
 // Chart layout constants
-const CHART_HEIGHT = 450;
+const CHART_HEIGHT = 565;
 const LEGEND_WIDTH = 260;
-const MARGIN = { top: 10, right: LEGEND_WIDTH + 20, bottom: 50, left: 60 };
-const BAR_WIDTH = 60;
-const BAR_GAP = 8; // gap between demand and capacity bars within a cluster
-const CLUSTER_GAP = 40; // gap between PI clusters
+const MARGIN = { top: 10, right: LEGEND_WIDTH + 20, bottom: 55, left: 65 };
+const BAR_WIDTH = 75;
+const BAR_GAP = 10; // gap between demand and capacity bars within a cluster
+const CLUSTER_GAP = 50; // gap between PI clusters
 const CAPACITY_COLOR = '#bdbdbd';
 const CAPACITY_LABEL_COLOR = '#757575';
 const LEGEND_ROW_HEIGHT = 20;
