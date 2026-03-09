@@ -7,3 +7,5 @@ export { default as SidebarContent } from './SidebarContent';
 export { default as SprintViewSidebarContent } from './SprintViewSidebarContent';
 export { default as ProjectSearch } from './ProjectSearch';
 export { default as BoardSelector } from './BoardSelector';
+export { default as CapacityDemandSidebarContent } from './CapacityDemandSidebarContent';
+export { default as PiSprintAssigner } from './PiSprintAssigner';

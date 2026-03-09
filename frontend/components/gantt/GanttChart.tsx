@@ -12,19 +12,7 @@ import TimelineHeader from './TimelineHeader';
 import EpicRow from './EpicRow';
 import DependencyLines from './DependencyLines';
 
-// MUI default theme color palette for epics
-const EPIC_COLORS = [
-  '#1976d2', // primary blue
-  '#9c27b0', // purple
-  '#2e7d32', // success green
-  '#ed6c02', // warning orange
-  '#0288d1', // info blue
-  '#d32f2f', // error red
-  '#00796b', // teal
-  '#c2185b', // pink
-  '#512da8', // deep purple
-  '#1565c0', // blue 800
-];
+import { EPIC_COLORS } from '@/shared/constants';
 
 interface GanttChartProps {
   data: GanttData;

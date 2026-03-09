@@ -36,7 +36,7 @@ interface HeaderProps {
 const Header = ({ connectionStatus }: HeaderProps) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const currentTab = pathname === '/sprint-view' ? 1 : 0;
+  const currentTab = pathname === '/capacity-v-demand' ? 2 : pathname === '/sprint-view' ? 1 : 0;
 
   // Build URLs that preserve shared query params
   const sharedQueryString = useMemo(() => {
@@ -74,6 +74,11 @@ const Header = ({ connectionStatus }: HeaderProps) => {
             label="Sprint View"
             component={NextLink}
             href={`/sprint-view${sharedQueryString}`}
+          />
+          <Tab
+            label="Capacity v Demand"
+            component={NextLink}
+            href={`/capacity-v-demand${sharedQueryString}`}
           />
         </Tabs>
         <Box>

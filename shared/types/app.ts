@@ -38,7 +38,20 @@ export const QUERY_PARAM_KEYS = {
   SPRINT_DATES: 'sprintDates',
   AUTO_ADJUST_START: 'autoAdjust',
   SIDEBAR_COLLAPSED: 'sb',
+  PI_LABELS: 'piLabels',
+  DEVS: 'devs',
+  PI_SPRINTS: 'piSprints',
+  BOARD_CD: 'boardCd',
+  PI_DAYS_OFF: 'piDaysOff',
 } as const;
+
+/**
+ * Associates sprint IDs with a PI label for capacity-demand sprint filtering
+ */
+export interface PiSprintAssignment {
+  piLabel: string;
+  sprintIds: number[];
+}
 
 /**
  * Sprint date override - allows manually overriding JIRA sprint dates
