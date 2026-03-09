@@ -17,6 +17,7 @@ export type {
   JiraBoardColumn,
   JiraBoardConfigResponse,
   JiraStatusResponse,
+  EpicStoryRow,
 } from './jira';
 
 // Scheduling types

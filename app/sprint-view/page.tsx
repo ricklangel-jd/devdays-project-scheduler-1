@@ -20,6 +20,10 @@ interface ConnectionStatus {
 }
 
 const SprintViewContent = () => {
+  useEffect(() => {
+    document.title = 'View Sprint';
+  }, []);
+
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     connected: false,
   });

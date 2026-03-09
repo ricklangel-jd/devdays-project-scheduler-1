@@ -161,6 +161,18 @@ export interface JiraBoardConfigResponse {
 }
 
 /**
+ * Row data for the epic stories grid on the Capacity v Demand page
+ */
+export interface EpicStoryRow {
+  key: string;
+  summary: string;
+  storyPoints: number | null;       // Raw devDays custom field value (null if missing)
+  storyPointEstimate: number | null; // Raw story_point_estimate field value (null if missing)
+  sprintName: string | null;         // Name of the latest sprint (by start date)
+  status: string;
+}
+
+/**
  * Full status details from /rest/api/3/status endpoint
  */
 export interface JiraStatusResponse {

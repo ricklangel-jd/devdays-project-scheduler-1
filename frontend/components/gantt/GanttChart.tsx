@@ -120,6 +120,24 @@ const GanttChart = ({ data, maxDevelopers, onDailyCapacityChange, sprintDateOver
     return Math.max(previousBlockOffset + totalDisplayDays * DAY_WIDTH + futureBlockSpace, 800);
   }, [totalDisplayDays, previousBlockOffset, futureBlockSpace]);
 
+  // Compute sprint boundary x-positions for vertical dividers
+  const sprintBoundaryXs = useMemo(() => {
+    if (!dailyCapacities || dailyCapacities.length === 0) return [];
+
+    // Find the first dayIndex for each sprint (ordered by dayIndex)
+    const sprintFirstDay = new Map<number, number>();
+    for (const day of dailyCapacities) {
+      if (!sprintFirstDay.has(day.sprintId)) {
+        sprintFirstDay.set(day.sprintId, day.dayIndex);
+      }
+    }
+
+    const sorted = [...sprintFirstDay.entries()].sort((a, b) => a[1] - b[1]);
+
+    // Skip the first sprint — its left edge is the chart start, not a boundary
+    return sorted.slice(1).map(([, dayIndex]) => previousBlockOffset + dayIndex * DAY_WIDTH);
+  }, [dailyCapacities, previousBlockOffset]);
+
   return (
     <Paper elevation={0} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Summary bar */}
@@ -284,6 +302,24 @@ const GanttChart = ({ data, maxDevelopers, onDailyCapacityChange, sprintDateOver
                 hasStretches={epicsByType.stretches.length > 0}
                 hasOthers={epicsByType.others.length > 0}
               />
+
+              {/* Sprint boundary vertical lines */}
+              {sprintBoundaryXs.map((x, idx) => (
+                <Box
+                  key={`sprint-boundary-${idx}`}
+                  sx={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: x,
+                    width: 0,
+                    borderLeft: '1px dashed',
+                    borderColor: 'grey.400',
+                    zIndex: 1,
+                    pointerEvents: 'none',
+                  }}
+                />
+              ))}
 
               {/* Epic rows grouped by commit type */}
               {/* Commits section header */}

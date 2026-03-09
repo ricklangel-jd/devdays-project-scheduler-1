@@ -11,8 +11,9 @@ import Tooltip from '@mui/material/Tooltip';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { Header, Sidebar, MainContent } from '@/frontend/components';
 import { CapacityDemandSidebarContent } from '@/frontend/components/sidebar';
-import { CapacityDemandChart } from '@/frontend/components/chart';
-import { useAppState } from '@/frontend/hooks';
+import { CapacityDemandChart, EpicStoriesGrid } from '@/frontend/components/chart';
+import type { EpicSelection } from '@/frontend/components/chart';
+import { useAppState, useEpicStoriesData } from '@/frontend/hooks';
 import { useCapacityDemandData } from '@/frontend/hooks/useCapacityDemandData';
 import { QUERY_PARAM_KEYS } from '@/shared/types';
 import type { JiraProject, PiSprintAssignment } from '@/shared/types';
@@ -87,6 +88,10 @@ const CapacityDemandContent = () => {
     searchParamsRef.current = searchParams;
   });
 
+  useEffect(() => {
+    document.title = 'Capacity v Demand';
+  }, []);
+
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     connected: false,
   });
@@ -99,6 +104,9 @@ const CapacityDemandContent = () => {
 
   const { data, isLoading, error, generate, clear } = useCapacityDemandData();
 
+  // Epic selection state (lifted from chart for stories grid)
+  const [epicSelection, setEpicSelection] = useState<EpicSelection | null>(null);
+
   // Parse PI labels from URL
   const piLabelsParam = searchParams.get(QUERY_PARAM_KEYS.PI_LABELS);
   const piLabels = useMemo(
@@ -109,6 +117,10 @@ const CapacityDemandContent = () => {
   // Parse developer count from URL
   const devsParam = searchParams.get(QUERY_PARAM_KEYS.DEVS);
   const developerCount = devsParam ? parseInt(devsParam, 10) || 5 : 5;
+
+  // Parse support percent from URL (default 10)
+  const supportPctParam = searchParams.get(QUERY_PARAM_KEYS.SUPPORT_PCT);
+  const supportPercent = supportPctParam ? parseInt(supportPctParam, 10) || 10 : 10;
 
   // Parse board ID from URL
   const boardCdParam = searchParams.get(QUERY_PARAM_KEYS.BOARD_CD);
@@ -132,6 +144,20 @@ const CapacityDemandContent = () => {
   const piDaysOff = useMemo(
     () => parsePiDaysOff(piDaysOffParam),
     [piDaysOffParam]
+  );
+
+  // Derive sprint IDs for stories grid filtering
+  // Bar clicks filter by the PI's sprints; legend clicks show all stories
+  const storiesSprintIds = useMemo(() => {
+    if (!epicSelection || epicSelection.source !== 'bar' || !epicSelection.piLabel) return undefined;
+    const piAssignment = piSprints.find((ps) => ps.piLabel === epicSelection.piLabel);
+    return piAssignment?.sprintIds;
+  }, [epicSelection, piSprints]);
+
+  // Fetch stories for selected epic
+  const { stories, epicStatus, isLoading: storiesLoading } = useEpicStoriesData(
+    epicSelection?.epicKey ?? null,
+    storiesSprintIds
   );
 
   // URL update helper
@@ -232,6 +258,10 @@ const CapacityDemandContent = () => {
     updateUrl(QUERY_PARAM_KEYS.DEVS, count.toString());
   }, [updateUrl]);
 
+  const handleSupportPercentChange = useCallback((pct: number) => {
+    updateUrl(QUERY_PARAM_KEYS.SUPPORT_PCT, pct.toString());
+  }, [updateUrl]);
+
   // Handler: piDaysOff changed
   const handlePiDaysOffChange = useCallback((daysOff: Record<string, number>) => {
     updateUrl(QUERY_PARAM_KEYS.PI_DAYS_OFF, serializePiDaysOff(daysOff));
@@ -282,6 +312,7 @@ const CapacityDemandContent = () => {
 
     if (hasChanged) {
       prevValuesRef.current = currentValues;
+      setEpicSelection(null);
       generate(projectKey, piLabels, piSprints);
     }
   }, [projectKey, piLabels, piSprints, piSprintsKey, generate, clear, data]);
@@ -317,6 +348,7 @@ const CapacityDemandContent = () => {
             boardId={boardId}
             piSprints={piSprints}
             developerCount={developerCount}
+            supportPercent={supportPercent}
             piDaysOff={piDaysOff}
             isGenerating={isLoading}
             onProjectSelect={handleProjectSelect}
@@ -324,6 +356,7 @@ const CapacityDemandContent = () => {
             onBoardSelect={handleBoardSelect}
             onPiSprintsChange={handlePiSprintsChange}
             onDeveloperCountChange={handleDeveloperCountChange}
+            onSupportPercentChange={handleSupportPercentChange}
             onPiDaysOffChange={handlePiDaysOffChange}
           />
         </Sidebar>
@@ -338,7 +371,16 @@ const CapacityDemandContent = () => {
               <CapacityDemandChart
                 data={data}
                 developerCount={developerCount}
+                supportPercent={supportPercent}
                 piDaysOff={piDaysOff}
+                selectedEpicKey={epicSelection?.epicKey ?? null}
+                onEpicSelect={setEpicSelection}
+              />
+              <EpicStoriesGrid
+                stories={stories}
+                isLoading={storiesLoading}
+                epicKey={epicSelection?.epicKey ?? null}
+                epicStatus={epicStatus}
               />
             </Box>
           ) : (

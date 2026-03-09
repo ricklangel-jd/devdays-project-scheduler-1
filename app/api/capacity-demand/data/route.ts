@@ -1,6 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getJiraClient, mapToTickets } from '@/backend/jira';
+import type { FieldConfig } from '@/backend/jira/mappers';
 import type { JiraTicket } from '@/shared/types';
+
+/**
+ * Jira built-in field for "Story point estimate" — used as fallback when the
+ * primary story-points field (JIRA_FIELD_DEV_DAYS) has no value.
+ */
+const STORY_POINT_ESTIMATE_FIELD = 'story_point_estimate';
+
+/**
+ * Build a field config that always falls back to story_point_estimate.
+ * If JIRA_FIELD_SPRINT_POINT_ESTIMATE is already configured, keep it;
+ * otherwise inject the Jira built-in field.
+ */
+const buildFieldConfig = (client: ReturnType<typeof getJiraClient>): FieldConfig => {
+  const base = client.getFieldConfig();
+  return {
+    ...base,
+    sprintPointEstimate: base.sprintPointEstimate || STORY_POINT_ESTIMATE_FIELD,
+  };
+};
 
 interface PiSprintAssignment {
   piLabel: string;
@@ -117,7 +137,7 @@ const processWithoutSprints = async (
   projectKey: string,
   client: ReturnType<typeof getJiraClient>
 ): Promise<PIDemand[]> => {
-  const fieldConfig = client.getFieldConfig();
+  const fieldConfig = buildFieldConfig(client);
 
   const piDataPromises = piLabels.map(async (label): Promise<PIDemand> => {
     const epics = await findEpicsForPI(label, projectKey, client);
@@ -125,7 +145,9 @@ const processWithoutSprints = async (
 
     for (const epic of epics) {
       try {
-        const ticketsResponse = await client.getEpicIssues(epic.key);
+        // Request story_point_estimate as extra field for fallback
+        const jql = `("Epic Link" = ${epic.key} OR parent = ${epic.key}) ORDER BY key ASC`;
+        const ticketsResponse = await client.searchAllIssues(jql, [STORY_POINT_ESTIMATE_FIELD]);
         const tickets = mapToTickets(ticketsResponse.issues, epic.key, fieldConfig);
         const totalPoints = tickets.reduce((sum, t) => sum + t.devDays, 0);
 
@@ -163,7 +185,7 @@ const processWithSprints = async (
   piSprints: PiSprintAssignment[],
   client: ReturnType<typeof getJiraClient>
 ): Promise<PIDemand[]> => {
-  const fieldConfig = client.getFieldConfig();
+  const fieldConfig = buildFieldConfig(client);
 
   // Phase 1: Build sprint metadata maps
   const allSprintIds = new Set<number>();
@@ -215,7 +237,8 @@ const processWithSprints = async (
   const ticketFetchPromises = Array.from(allEpicKeys).map(async (epicKey) => {
     try {
       const jql = `("Epic Link" = ${epicKey} OR parent = ${epicKey}) ORDER BY key ASC`;
-      const response = await client.searchAllIssues(jql);
+      // Request story_point_estimate as extra field for fallback
+      const response = await client.searchAllIssues(jql, [STORY_POINT_ESTIMATE_FIELD]);
       const tickets = mapToTickets(response.issues, epicKey, fieldConfig);
       epicTicketsMap.set(epicKey, tickets);
     } catch (error) {

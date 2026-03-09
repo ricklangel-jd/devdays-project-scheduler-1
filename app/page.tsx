@@ -19,6 +19,10 @@ interface ConnectionStatus {
 }
 
 const HomeContent = () => {
+  useEffect(() => {
+    document.title = 'DevDays GaNTT Chart';
+  }, []);
+
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     connected: false,
   });

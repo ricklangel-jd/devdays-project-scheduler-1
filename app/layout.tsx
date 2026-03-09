@@ -3,7 +3,7 @@ import { ThemeRegistry } from '@/frontend/theme';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'DevDays GANTT Chart',
+  title: 'DevDays GaNTT Chart',
   description: 'JIRA-powered GANTT chart for project estimation',
 };
 

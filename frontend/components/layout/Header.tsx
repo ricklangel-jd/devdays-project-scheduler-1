@@ -14,17 +14,8 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import { QUERY_PARAM_KEYS } from '@/shared/types';
 
-// Params shared between both views (exclude view-specific ones like 'epics')
-const SHARED_PARAMS = [
-  QUERY_PARAM_KEYS.PROJECT,
-  QUERY_PARAM_KEYS.BOARD,
-  QUERY_PARAM_KEYS.SPRINTS,
-  QUERY_PARAM_KEYS.MAX_DEVS,
-  QUERY_PARAM_KEYS.DAILY_CAPS,
-  QUERY_PARAM_KEYS.SPRINT_DATES,
-  QUERY_PARAM_KEYS.AUTO_ADJUST_START,
-  QUERY_PARAM_KEYS.SIDEBAR_COLLAPSED,
-] as string[];
+// Carry ALL query params when navigating between pages so no page loses its selections
+const ALL_PARAMS = Object.values(QUERY_PARAM_KEYS) as string[];
 
 interface HeaderProps {
   connectionStatus?: {
@@ -38,10 +29,10 @@ const Header = ({ connectionStatus }: HeaderProps) => {
   const searchParams = useSearchParams();
   const currentTab = pathname === '/capacity-v-demand' ? 2 : pathname === '/sprint-view' ? 1 : 0;
 
-  // Build URLs that preserve shared query params
-  const sharedQueryString = useMemo(() => {
+  // Build URLs that preserve all query params across page navigation
+  const preservedQueryString = useMemo(() => {
     const params = new URLSearchParams();
-    for (const key of SHARED_PARAMS) {
+    for (const key of ALL_PARAMS) {
       const value = searchParams.get(key);
       if (value) {
         params.set(key, value);
@@ -68,17 +59,17 @@ const Header = ({ connectionStatus }: HeaderProps) => {
           <Tab
             label="Schedule View"
             component={NextLink}
-            href={`/${sharedQueryString}`}
+            href={`/${preservedQueryString}`}
           />
           <Tab
             label="Sprint View"
             component={NextLink}
-            href={`/sprint-view${sharedQueryString}`}
+            href={`/sprint-view${preservedQueryString}`}
           />
           <Tab
             label="Capacity v Demand"
             component={NextLink}
-            href={`/capacity-v-demand${sharedQueryString}`}
+            href={`/capacity-v-demand${preservedQueryString}`}
           />
         </Tabs>
         <Box>

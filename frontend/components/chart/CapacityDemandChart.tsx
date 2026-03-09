@@ -4,19 +4,29 @@ import { useMemo, useRef, useState, useEffect } from 'react';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
+import Box from '@mui/material/Box';
 import { EPIC_COLORS } from '@/shared/constants';
 import type { CapacityDemandData, EpicDemand } from '@/frontend/hooks/useCapacityDemandData';
+
+export interface EpicSelection {
+  epicKey: string;
+  source: 'bar' | 'legend';
+  piLabel?: string; // only when source === 'bar'
+}
 
 interface CapacityDemandChartProps {
   data: CapacityDemandData;
   developerCount: number;
+  supportPercent?: number; // % of capacity reserved for support (default 10)
   piDaysOff?: Record<string, number>; // piLabel → days off
+  selectedEpicKey: string | null;
+  onEpicSelect: (selection: EpicSelection | null) => void;
 }
 
 // Chart layout constants
-const CHART_HEIGHT = 480;
+const CHART_HEIGHT = 450;
 const LEGEND_WIDTH = 260;
-const MARGIN = { top: 40, right: LEGEND_WIDTH + 20, bottom: 60, left: 60 };
+const MARGIN = { top: 10, right: LEGEND_WIDTH + 20, bottom: 50, left: 60 };
 const BAR_WIDTH = 60;
 const BAR_GAP = 8; // gap between demand and capacity bars within a cluster
 const CLUSTER_GAP = 40; // gap between PI clusters
@@ -60,10 +70,9 @@ const StripePattern = ({ id, color }: { id: string; color: string }) => (
   </pattern>
 );
 
-const CapacityDemandChart = ({ data, developerCount, piDaysOff = {} }: CapacityDemandChartProps) => {
+const CapacityDemandChart = ({ data, developerCount, supportPercent = 10, piDaysOff = {}, selectedEpicKey, onEpicSelect }: CapacityDemandChartProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(800);
-  const [selectedEpicKey, setSelectedEpicKey] = useState<string | null>(null);
 
   // Responsive width tracking
   useEffect(() => {
@@ -84,37 +93,58 @@ const CapacityDemandChart = ({ data, developerCount, piDaysOff = {} }: CapacityD
   // Capacity per PI quarter (working days only: 261 work days/year / 4 quarters ~ 65)
   const workDaysPerQuarter = Math.round((365 - 104) / 4); // 365 days - 104 weekend days
 
-  // Per-PI capacity (subtracting days off)
+  // Support multiplier (e.g., 10% support → 0.9 multiplier)
+  const supportMultiplier = 1 - (supportPercent / 100);
+
+  // Per-PI capacity (subtracting days off, then applying support %)
   const capacityForPI = useMemo(() => {
     const map: Record<string, number> = {};
     for (const pi of data.piData) {
       const daysOff = piDaysOff[pi.label] ?? 0;
-      map[pi.label] = Math.max(0, workDaysPerQuarter - daysOff) * developerCount;
+      map[pi.label] = Math.round(Math.max(0, workDaysPerQuarter - daysOff) * developerCount * supportMultiplier);
     }
     return map;
-  }, [data, developerCount, workDaysPerQuarter, piDaysOff]);
+  }, [data, developerCount, workDaysPerQuarter, piDaysOff, supportMultiplier]);
 
   // Base capacity (no days off) for subtitle
-  const baseCapacityPerPI = workDaysPerQuarter * developerCount;
+  const baseCapacityPerPI = Math.round(workDaysPerQuarter * developerCount * supportMultiplier);
 
   // Build stable epic → color index map
   const epicColorMap = useMemo(() => buildEpicColorMap(data), [data]);
 
-  // Collect all unique epics for the legend
-  const legendEpics = useMemo(() => {
-    const seen = new Map<string, { key: string; summary: string; isStretch: boolean }>();
+  // Collect all unique epics, split into those with stories vs without
+  const { legendEpics, noStoryEpics } = useMemo(() => {
+    const epicInfo = new Map<string, { key: string; summary: string; isStretch: boolean }>();
+    const epicHasPoints = new Map<string, boolean>();
+
     for (const pi of data.piData) {
       for (const epic of pi.epics) {
-        if (!seen.has(epic.key)) {
-          seen.set(epic.key, {
+        if (!epicInfo.has(epic.key)) {
+          epicInfo.set(epic.key, {
             key: epic.key,
             summary: epic.summary,
             isStretch: epic.isStretch,
           });
+          epicHasPoints.set(epic.key, false);
+        }
+        if (epic.totalPoints > 0) {
+          epicHasPoints.set(epic.key, true);
         }
       }
     }
-    return Array.from(seen.values());
+
+    const withStories: { key: string; summary: string; isStretch: boolean }[] = [];
+    const withoutStories: { key: string; summary: string; isStretch: boolean }[] = [];
+
+    for (const [key, info] of epicInfo) {
+      if (epicHasPoints.get(key)) {
+        withStories.push(info);
+      } else {
+        withoutStories.push(info);
+      }
+    }
+
+    return { legendEpics: withStories, noStoryEpics: withoutStories };
   }, [data]);
 
   // Calculate max Y value (using per-PI capacities)
@@ -174,29 +204,32 @@ const CapacityDemandChart = ({ data, developerCount, piDaysOff = {} }: CapacityD
     return patterns;
   }, [data, epicColorMap]);
 
-  // Legend height for SVG sizing
+  // Legend + No Stories height for SVG sizing
   const legendTotalRows = legendEpics.length + 1; // +1 for capacity entry
-  const legendHeight = legendTotalRows * LEGEND_ROW_HEIGHT + 30; // +30 for header
-  const svgHeight = Math.max(CHART_HEIGHT, MARGIN.top + legendHeight);
+  const legendHeight = legendTotalRows * LEGEND_ROW_HEIGHT + 10;
+  const noStoriesHeight = noStoryEpics.length > 0
+    ? noStoryEpics.length * LEGEND_ROW_HEIGHT + 30 // +30 for header + gap
+    : 0;
+  const svgHeight = Math.max(CHART_HEIGHT, MARGIN.top + legendHeight + noStoriesHeight);
 
   return (
     <Paper
       ref={containerRef}
-      sx={{ p: 3, m: 2, overflow: 'hidden' }}
+      sx={{ px: 3, py: 1.5, m: 2, overflow: 'hidden' }}
       elevation={1}
     >
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" sx={{ mb: 0.25 }}>
         Capacity vs Demand
       </Typography>
-      <Typography variant="body2" color="text.secondary" gutterBottom>
-        Story points demand by epic vs team capacity ({developerCount} developer{developerCount !== 1 ? 's' : ''} &times; {workDaysPerQuarter} work days = {baseCapacityPerPI} pts/quarter)
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+        Story points demand by epic vs team capacity ({developerCount} dev{developerCount !== 1 ? 's' : ''} &times; {workDaysPerQuarter} days &times; {100 - supportPercent}% available = {baseCapacityPerPI} pts/quarter)
       </Typography>
 
       <svg
         width={svgWidth}
         height={svgHeight}
         style={{ display: 'block', margin: '0 auto' }}
-        onClick={() => setSelectedEpicKey(null)}
+        onClick={() => onEpicSelect(null)}
       >
         {/* Pattern definitions for stretch epics */}
         <defs>
@@ -321,7 +354,7 @@ const CapacityDemandChart = ({ data, developerCount, piDaysOff = {} }: CapacityD
                         style={{ cursor: 'pointer', transition: 'opacity 0.15s ease' }}
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedEpicKey(isSelected ? null : seg.epic.key);
+                          onEpicSelect(isSelected ? null : { epicKey: seg.epic.key, source: 'bar', piLabel: pi.label });
                         }}
                       />
                     </Tooltip>
@@ -419,22 +452,13 @@ const CapacityDemandChart = ({ data, developerCount, piDaysOff = {} }: CapacityD
 
           {/* Legend — right side of chart */}
           <g transform={`translate(${chartWidth + 20}, 0)`}>
-            <text
-              fontSize={12}
-              fontWeight="bold"
-              fill="#333"
-              y={-4}
-            >
-              Legend
-            </text>
-
             {legendEpics.map((epic, idx) => {
               const colorIdx = epicColorMap.get(epic.key) ?? 0;
               const baseColor = EPIC_COLORS[colorIdx % EPIC_COLORS.length];
               const patternId = epic.isStretch
                 ? `stripe-${epic.key.replace(/[^a-zA-Z0-9]/g, '-')}`
                 : '';
-              const rowY = idx * LEGEND_ROW_HEIGHT + 10;
+              const rowY = idx * LEGEND_ROW_HEIGHT;
               const isSelected = selectedEpicKey === epic.key;
               const isDimmed = selectedEpicKey !== null && !isSelected;
 
@@ -446,7 +470,7 @@ const CapacityDemandChart = ({ data, developerCount, piDaysOff = {} }: CapacityD
                   style={{ cursor: 'pointer', transition: 'opacity 0.15s ease' }}
                   onClick={(e) => {
                     e.stopPropagation();
-                    setSelectedEpicKey(isSelected ? null : epic.key);
+                    onEpicSelect(isSelected ? null : { epicKey: epic.key, source: 'legend' });
                   }}
                 >
                   <rect
@@ -472,7 +496,7 @@ const CapacityDemandChart = ({ data, developerCount, piDaysOff = {} }: CapacityD
             })}
 
             {/* Capacity legend entry */}
-            <g transform={`translate(0, ${legendEpics.length * LEGEND_ROW_HEIGHT + 10})`}>
+            <g transform={`translate(0, ${legendEpics.length * LEGEND_ROW_HEIGHT})`}>
               <rect
                 width={14}
                 height={14}
@@ -490,6 +514,63 @@ const CapacityDemandChart = ({ data, developerCount, piDaysOff = {} }: CapacityD
                 Capacity ({developerCount} dev{developerCount !== 1 ? 's' : ''})
               </text>
             </g>
+
+            {/* No Stories section */}
+            {noStoryEpics.length > 0 && (() => {
+              const noStoriesStartY = (legendEpics.length + 1) * LEGEND_ROW_HEIGHT + 10;
+              return (
+                <g transform={`translate(0, ${noStoriesStartY})`}>
+                  <text
+                    fontSize={12}
+                    fontWeight="bold"
+                    fill="#999"
+                    y={-4}
+                  >
+                    No Stories
+                  </text>
+
+                  {noStoryEpics.map((epic, idx) => {
+                    const colorIdx = epicColorMap.get(epic.key) ?? 0;
+                    const baseColor = EPIC_COLORS[colorIdx % EPIC_COLORS.length];
+                    const rowY = idx * LEGEND_ROW_HEIGHT + 10;
+                    const isSelected = selectedEpicKey === epic.key;
+                    const isDimmed = selectedEpicKey !== null && !isSelected;
+
+                    return (
+                      <g
+                        key={epic.key}
+                        transform={`translate(0, ${rowY})`}
+                        opacity={isDimmed ? 0.3 : 1}
+                        style={{ cursor: 'pointer', transition: 'opacity 0.15s ease' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEpicSelect(isSelected ? null : { epicKey: epic.key, source: 'legend' });
+                        }}
+                      >
+                        <rect
+                          width={14}
+                          height={14}
+                          fill="none"
+                          stroke={isSelected ? '#333' : baseColor}
+                          strokeWidth={isSelected ? 2 : 1}
+                          strokeDasharray="3,2"
+                          rx={2}
+                        />
+                        <text
+                          x={20}
+                          y={11}
+                          fontSize={11}
+                          fill="#999"
+                          fontWeight={isSelected ? 'bold' : 'normal'}
+                        >
+                          {epic.key}: {epic.summary.length > 24 ? `${epic.summary.slice(0, 24)}...` : epic.summary}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </g>
+              );
+            })()}
           </g>
         </g>
       </svg>

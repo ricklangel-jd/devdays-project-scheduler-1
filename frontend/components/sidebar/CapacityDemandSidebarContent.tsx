@@ -60,6 +60,7 @@ interface CapacityDemandSidebarContentProps {
   boardId?: number;
   piSprints: PiSprintAssignment[];
   developerCount: number;
+  supportPercent: number;
   piDaysOff: Record<string, number>;
   isGenerating?: boolean;
   onProjectSelect: (project: JiraProject) => void;
@@ -67,6 +68,7 @@ interface CapacityDemandSidebarContentProps {
   onBoardSelect: (boardId: number) => void;
   onPiSprintsChange: (assignments: PiSprintAssignment[]) => void;
   onDeveloperCountChange: (count: number) => void;
+  onSupportPercentChange: (pct: number) => void;
   onPiDaysOffChange: (piDaysOff: Record<string, number>) => void;
 }
 
@@ -76,6 +78,7 @@ const CapacityDemandSidebarContent = ({
   boardId,
   piSprints,
   developerCount,
+  supportPercent,
   piDaysOff,
   isGenerating = false,
   onProjectSelect,
@@ -83,6 +86,7 @@ const CapacityDemandSidebarContent = ({
   onBoardSelect,
   onPiSprintsChange,
   onDeveloperCountChange,
+  onSupportPercentChange,
   onPiDaysOffChange,
 }: CapacityDemandSidebarContentProps) => {
   const hasProjectSelected = !!projectKey;
@@ -214,6 +218,23 @@ const CapacityDemandSidebarContent = ({
           disabled={!hasPIsSelected}
           inputProps={{ min: 1, max: 15 }}
           helperText="Number of developers. Used to calculate capacity per PI quarter."
+        />
+        <TextField
+          type="number"
+          size="small"
+          fullWidth
+          label="% Support Time"
+          value={supportPercent}
+          onChange={(e) => {
+            const val = parseInt(e.target.value, 10);
+            if (!isNaN(val) && val >= 0 && val <= 100) {
+              onSupportPercentChange(val);
+            }
+          }}
+          disabled={!hasPIsSelected}
+          inputProps={{ min: 0, max: 100 }}
+          helperText="Percentage of capacity reserved for support work."
+          sx={{ mt: 1.5 }}
         />
       </Box>
 
