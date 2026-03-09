@@ -30,6 +30,7 @@ const PARAMS_TO_CLEAR_ON_PROJECT_CHANGE: string[] = [
   QUERY_PARAM_KEYS.PI_LABELS,
   QUERY_PARAM_KEYS.PI_SPRINTS,
   QUERY_PARAM_KEYS.PI_DAYS_OFF,
+  QUERY_PARAM_KEYS.SC_SPRINTS,
 ];
 
 // Params to clear when the board changes (downstream selections across all pages)
@@ -38,6 +39,7 @@ const PARAMS_TO_CLEAR_ON_BOARD_CHANGE: string[] = [
   QUERY_PARAM_KEYS.DAILY_CAPS,
   QUERY_PARAM_KEYS.SPRINT_DATES,
   QUERY_PARAM_KEYS.PI_SPRINTS,
+  QUERY_PARAM_KEYS.SC_SPRINTS,
 ];
 
 interface HeaderProps {
@@ -56,7 +58,7 @@ const Header = ({ connectionStatus }: HeaderProps) => {
     searchParamsRef.current = searchParams;
   });
 
-  const currentTab = pathname === '/all-work' ? 3 : pathname === '/capacity-v-demand' ? 2 : pathname === '/sprint-view' ? 1 : 0;
+  const currentTab = pathname === '/sprint-check' ? 4 : pathname === '/all-work' ? 3 : pathname === '/capacity-v-demand' ? 2 : pathname === '/sprint-view' ? 1 : 0;
   const projectKey = searchParams.get(QUERY_PARAM_KEYS.PROJECT) ?? undefined;
   const boardIdParam = searchParams.get(QUERY_PARAM_KEYS.BOARD);
   const boardId = boardIdParam ? parseInt(boardIdParam, 10) || undefined : undefined;
@@ -131,6 +133,11 @@ const Header = ({ connectionStatus }: HeaderProps) => {
             label="All Work"
             component={NextLink}
             href={`/all-work${preservedQueryString}`}
+          />
+          <Tab
+            label="Sprint Check"
+            component={NextLink}
+            href={`/sprint-check${preservedQueryString}`}
           />
         </Tabs>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: 2 }}>

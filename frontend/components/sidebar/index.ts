@@ -9,3 +9,4 @@ export { default as ProjectSearch } from './ProjectSearch';
 export { default as BoardSelector } from './BoardSelector';
 export { default as CapacityDemandSidebarContent } from './CapacityDemandSidebarContent';
 export { default as PiSprintAssigner } from './PiSprintAssigner';
+export { default as SprintCheckSidebarContent } from './SprintCheckSidebarContent';
