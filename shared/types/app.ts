@@ -41,7 +41,6 @@ export const QUERY_PARAM_KEYS = {
   PI_LABELS: 'piLabels',
   DEVS: 'devs',
   PI_SPRINTS: 'piSprints',
-  BOARD_CD: 'boardCd',
   PI_DAYS_OFF: 'piDaysOff',
   SUPPORT_PCT: 'supportPct',
 } as const;

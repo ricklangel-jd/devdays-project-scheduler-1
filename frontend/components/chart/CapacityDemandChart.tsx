@@ -339,7 +339,10 @@ const CapacityDemandChart = ({ data, developerCount, supportPercent = 10, piDays
                   return (
                     <Tooltip
                       key={`${pi.label}-${seg.epic.key}`}
-                      title={`${seg.epic.key}: ${seg.epic.summary} — ${seg.epic.totalPoints} pts${seg.epic.isStretch ? ' (Stretch)' : ''}`}
+                      title={seg.epic.key === '__NO_EPIC__'
+                        ? `No Epic — ${seg.epic.totalPoints} pts`
+                        : `${seg.epic.key}: ${seg.epic.summary} — ${seg.epic.totalPoints} pts${seg.epic.isStretch ? ' (Stretch)' : ''}`
+                      }
                       arrow
                     >
                       <rect
@@ -488,8 +491,10 @@ const CapacityDemandChart = ({ data, developerCount, supportPercent = 10, piDays
                     fill="#333"
                     fontWeight={isSelected ? 'bold' : 'normal'}
                   >
-                    {epic.key}: {epic.summary.length > 24 ? `${epic.summary.slice(0, 24)}...` : epic.summary}
-                    {epic.isStretch ? ' (Stretch)' : ''}
+                    {epic.key === '__NO_EPIC__'
+                      ? 'No Epic'
+                      : `${epic.key}: ${epic.summary.length > 24 ? `${epic.summary.slice(0, 24)}...` : epic.summary}${epic.isStretch ? ' (Stretch)' : ''}`
+                    }
                   </text>
                 </g>
               );
@@ -563,7 +568,10 @@ const CapacityDemandChart = ({ data, developerCount, supportPercent = 10, piDays
                           fill="#999"
                           fontWeight={isSelected ? 'bold' : 'normal'}
                         >
-                          {epic.key}: {epic.summary.length > 24 ? `${epic.summary.slice(0, 24)}...` : epic.summary}
+                          {epic.key === '__NO_EPIC__'
+                            ? 'No Epic'
+                            : `${epic.key}: ${epic.summary.length > 24 ? `${epic.summary.slice(0, 24)}...` : epic.summary}`
+                          }
                         </text>
                       </g>
                     );

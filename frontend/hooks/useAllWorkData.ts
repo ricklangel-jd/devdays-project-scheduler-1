@@ -2,22 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import type { PiSprintAssignment } from '@/shared/types';
-
-export interface EpicDemand {
-  key: string;
-  summary: string;
-  totalPoints: number;
-  isStretch: boolean;
-}
-
-export interface PIDemand {
-  label: string;
-  epics: EpicDemand[];
-}
-
-export interface CapacityDemandData {
-  piData: PIDemand[];
-}
+import type { CapacityDemandData } from './useCapacityDemandData';
 
 /**
  * Serialize piSprints to a stable string for cache comparison.
@@ -37,15 +22,15 @@ interface CachedData {
   data: CapacityDemandData;
 }
 
-interface UseCapacityDemandDataResult {
+interface UseAllWorkDataResult {
   data: CapacityDemandData | null;
   isLoading: boolean;
   error: string | null;
-  generate: (projectKey: string, piLabels: string[], piSprints?: PiSprintAssignment[], boardId?: number) => Promise<void>;
+  generate: (projectKey: string, piLabels: string[], piSprints: PiSprintAssignment[], boardId?: number) => Promise<void>;
   clear: () => void;
 }
 
-export const useCapacityDemandData = (): UseCapacityDemandDataResult => {
+export const useAllWorkData = (): UseAllWorkDataResult => {
   const [data, setData] = useState<CapacityDemandData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,10 +40,10 @@ export const useCapacityDemandData = (): UseCapacityDemandDataResult => {
   const generate = useCallback(async (
     projectKey: string,
     piLabels: string[],
-    piSprints?: PiSprintAssignment[],
+    piSprints: PiSprintAssignment[],
     boardId?: number
   ) => {
-    const piSprintsKey = serializePiSprints(piSprints ?? []);
+    const piSprintsKey = serializePiSprints(piSprints);
 
     // Check cache - skip fetch if inputs haven't changed
     const cached = cachedDataRef.current;
@@ -77,13 +62,13 @@ export const useCapacityDemandData = (): UseCapacityDemandDataResult => {
     setError(null);
 
     try {
-      const response = await fetch('/api/capacity-demand/data', {
+      const response = await fetch('/api/all-work/data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           projectKey,
           piLabels,
-          piSprints: piSprints ?? [],
+          piSprints,
           boardId,
         }),
       });

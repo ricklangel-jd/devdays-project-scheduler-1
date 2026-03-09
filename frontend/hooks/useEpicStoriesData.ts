@@ -25,6 +25,13 @@ const serializeSprintIds = (sprintIds?: number[]): string => {
   return [...sprintIds].sort((a, b) => a - b).join(',');
 };
 
+interface UseEpicStoriesOptions {
+  /** API endpoint for fetching stories (default: /api/capacity-demand/stories) */
+  apiUrl?: string;
+  /** Project key — required when fetching __NO_EPIC__ stories */
+  projectKey?: string;
+}
+
 /**
  * Hook that fetches individual stories for a selected epic.
  * Optionally filters by sprint IDs (for bar-click selections).
@@ -32,8 +39,11 @@ const serializeSprintIds = (sprintIds?: number[]): string => {
  */
 export const useEpicStoriesData = (
   epicKey: string | null,
-  sprintIds?: number[]
+  sprintIds?: number[],
+  options?: UseEpicStoriesOptions
 ): UseEpicStoriesDataResult => {
+  const apiUrl = options?.apiUrl ?? '/api/capacity-demand/stories';
+  const projectKey = options?.projectKey;
   const [stories, setStories] = useState<EpicStoryRow[]>([]);
   const [epicStatus, setEpicStatus] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -70,12 +80,15 @@ export const useEpicStoriesData = (
     setError(null);
 
     try {
-      const body: { epicKey: string; sprintIds?: number[] } = { epicKey: key };
+      const body: { epicKey: string; sprintIds?: number[]; projectKey?: string } = { epicKey: key };
       if (filterSprintIds && filterSprintIds.length > 0) {
         body.sprintIds = filterSprintIds;
       }
+      if (projectKey) {
+        body.projectKey = projectKey;
+      }
 
-      const response = await fetch('/api/capacity-demand/stories', {
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -106,7 +119,7 @@ export const useEpicStoriesData = (
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [apiUrl, projectKey]);
 
   useEffect(() => {
     if (!epicKey) {

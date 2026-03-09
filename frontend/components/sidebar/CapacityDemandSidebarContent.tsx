@@ -1,6 +1,5 @@
 'use client';
 
-import { useCallback } from 'react';
 import Box from '@mui/material/Box';
 import Divider from '@mui/material/Divider';
 import Typography from '@mui/material/Typography';
@@ -10,10 +9,8 @@ import Checkbox from '@mui/material/Checkbox';
 import Alert from '@mui/material/Alert';
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
-import ProjectSearch from './ProjectSearch';
-import BoardSelector from './BoardSelector';
 import PiSprintAssigner from './PiSprintAssigner';
-import type { JiraProject, PiSprintAssignment } from '@/shared/types';
+import type { PiSprintAssignment } from '@/shared/types';
 
 const icon = <CheckBoxOutlineBlankIcon fontSize="small" />;
 const checkedIcon = <CheckBoxIcon fontSize="small" />;
@@ -63,9 +60,9 @@ interface CapacityDemandSidebarContentProps {
   supportPercent: number;
   piDaysOff: Record<string, number>;
   isGenerating?: boolean;
-  onProjectSelect: (project: JiraProject) => void;
+  /** When true, sprint assignments are required (not optional) */
+  sprintsRequired?: boolean;
   onPILabelsChange: (labels: string[]) => void;
-  onBoardSelect: (boardId: number) => void;
   onPiSprintsChange: (assignments: PiSprintAssignment[]) => void;
   onDeveloperCountChange: (count: number) => void;
   onSupportPercentChange: (pct: number) => void;
@@ -81,9 +78,8 @@ const CapacityDemandSidebarContent = ({
   supportPercent,
   piDaysOff,
   isGenerating = false,
-  onProjectSelect,
+  sprintsRequired = false,
   onPILabelsChange,
-  onBoardSelect,
   onPiSprintsChange,
   onDeveloperCountChange,
   onSupportPercentChange,
@@ -95,13 +91,6 @@ const CapacityDemandSidebarContent = ({
   const hasBoardSelected = !!boardId;
   const hasSprintsAssigned = piSprints.some((ps) => ps.sprintIds.length > 0);
 
-  const handleProjectSelect = useCallback(
-    (project: JiraProject) => {
-      onProjectSelect(project);
-    },
-    [onProjectSelect]
-  );
-
   // Find selected PI option objects from the labels
   const selectedPIOptions = PI_OPTIONS.filter((opt) =>
     piLabels.includes(opt.label)
@@ -109,41 +98,14 @@ const CapacityDemandSidebarContent = ({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-      {/* Step 1: Project Selection */}
-      <Box>
-        <Typography
-          variant="subtitle2"
-          gutterBottom
-          sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
-        >
-          <StepCircle step={1} done={hasProjectSelected} />
-          Select Project
-        </Typography>
-        <ProjectSearch
-          onProjectSelect={handleProjectSelect}
-          selectedProjectKey={projectKey}
-        />
-        {projectKey && (
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ mt: 0.5, display: 'block' }}
-          >
-            Selected: {projectKey}
-          </Typography>
-        )}
-      </Box>
-
-      <Divider />
-
-      {/* Step 2: Select PIs */}
+      {/* Step 1: Select PIs */}
       <Box sx={{ opacity: hasProjectSelected ? 1 : 0.5 }}>
         <Typography
           variant="subtitle2"
           gutterBottom
           sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
         >
-          <StepCircle step={2} done={hasPIsSelected} />
+          <StepCircle step={1} done={hasPIsSelected} />
           Select Planning Increments
         </Typography>
         <Autocomplete
@@ -194,14 +156,14 @@ const CapacityDemandSidebarContent = ({
 
       <Divider />
 
-      {/* Step 3: Team Size */}
+      {/* Step 2: Team Size */}
       <Box sx={{ opacity: hasPIsSelected ? 1 : 0.5 }}>
         <Typography
           variant="subtitle2"
           gutterBottom
           sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
         >
-          <StepCircle step={3} done={hasTeamSize} />
+          <StepCircle step={2} done={hasTeamSize} />
           Team Size
         </Typography>
         <TextField
@@ -295,53 +257,17 @@ const CapacityDemandSidebarContent = ({
 
       <Divider />
 
-      {/* Optional: Sprint Filtering */}
-      <Typography
-        variant="overline"
-        color="text.secondary"
-        sx={{ letterSpacing: 1.5, fontSize: 10 }}
-      >
-        Sprint Filtering (Optional)
-      </Typography>
-
-      {/* Step 4: Select Board */}
-      <Box sx={{ opacity: hasPIsSelected ? 1 : 0.5 }}>
-        <Typography
-          variant="subtitle2"
-          gutterBottom
-          sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
-        >
-          <StepCircle step={4} done={hasBoardSelected} />
-          Select Board
-        </Typography>
-        <BoardSelector
-          projectKey={projectKey}
-          selectedBoardId={boardId}
-          onBoardSelect={onBoardSelect}
-          disabled={!hasPIsSelected}
-        />
-        {!hasPIsSelected && (
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ mt: 0.5, display: 'block' }}
-          >
-            Select PIs first
-          </Typography>
-        )}
-      </Box>
-
-      {/* Step 5: Associate Sprints to PIs */}
-      {hasBoardSelected && hasPIsSelected && (
-        <>
-          <Divider />
+      {/* Sprint Assignment Section */}
+      {sprintsRequired ? (
+        /* Required sprints: always show when PIs selected + board available */
+        hasBoardSelected && hasPIsSelected && (
           <Box>
             <Typography
               variant="subtitle2"
               gutterBottom
               sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
             >
-              <StepCircle step={5} done={hasSprintsAssigned} />
+              <StepCircle step={3} done={hasSprintsAssigned} />
               Associate Sprints to PIs
             </Typography>
             <PiSprintAssigner
@@ -350,7 +276,49 @@ const CapacityDemandSidebarContent = ({
               piSprints={piSprints}
               onChange={onPiSprintsChange}
             />
+            {!hasSprintsAssigned && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ mt: 1, display: 'block' }}
+              >
+                Assign sprints to at least one PI to view data
+              </Typography>
+            )}
           </Box>
+        )
+      ) : (
+        /* Optional sprints: show with "Optional" header */
+        <>
+          <Typography
+            variant="overline"
+            color="text.secondary"
+            sx={{ letterSpacing: 1.5, fontSize: 10 }}
+          >
+            Sprint Filtering (Optional)
+          </Typography>
+
+          {hasBoardSelected && hasPIsSelected && (
+            <>
+              <Divider />
+              <Box>
+                <Typography
+                  variant="subtitle2"
+                  gutterBottom
+                  sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+                >
+                  <StepCircle step={3} done={hasSprintsAssigned} />
+                  Associate Sprints to PIs
+                </Typography>
+                <PiSprintAssigner
+                  piLabels={piLabels}
+                  boardId={boardId!}
+                  piSprints={piSprints}
+                  onChange={onPiSprintsChange}
+                />
+              </Box>
+            </>
+          )}
         </>
       )}
 

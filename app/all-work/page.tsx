@@ -14,7 +14,7 @@ import { CapacityDemandSidebarContent } from '@/frontend/components/sidebar';
 import { CapacityDemandChart, EpicStoriesGrid } from '@/frontend/components/chart';
 import type { EpicSelection } from '@/frontend/components/chart';
 import { useAppState, useEpicStoriesData } from '@/frontend/hooks';
-import { useCapacityDemandData } from '@/frontend/hooks/useCapacityDemandData';
+import { useAllWorkData } from '@/frontend/hooks/useAllWorkData';
 import { QUERY_PARAM_KEYS } from '@/shared/types';
 import type { PiSprintAssignment } from '@/shared/types';
 
@@ -80,7 +80,7 @@ const serializePiDaysOff = (daysOff: Record<string, number>): string | null => {
   return entries.map(([piLabel, days]) => `${piLabel}:${days}`).join(',');
 };
 
-const CapacityDemandContent = () => {
+const AllWorkContent = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const searchParamsRef = useRef(searchParams);
@@ -89,7 +89,7 @@ const CapacityDemandContent = () => {
   });
 
   useEffect(() => {
-    document.title = 'Capacity v Demand';
+    document.title = 'All Work';
   }, []);
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
@@ -102,7 +102,7 @@ const CapacityDemandContent = () => {
     setSidebarCollapsed,
   } = useAppState();
 
-  const { data, isLoading, error, generate, clear } = useCapacityDemandData();
+  const { data, isLoading, error, generate, clear } = useAllWorkData();
 
   // Epic selection state (lifted from chart for stories grid)
   const [epicSelection, setEpicSelection] = useState<EpicSelection | null>(null);
@@ -146,18 +146,31 @@ const CapacityDemandContent = () => {
     [piDaysOffParam]
   );
 
+  // Check if sprints are assigned (required for All Work)
+  const hasSprintsAssigned = piSprints.some((ps) => ps.sprintIds.length > 0);
+
   // Derive sprint IDs for stories grid filtering
   // Bar clicks filter by the PI's sprints; legend clicks show all stories
   const storiesSprintIds = useMemo(() => {
-    if (!epicSelection || epicSelection.source !== 'bar' || !epicSelection.piLabel) return undefined;
-    const piAssignment = piSprints.find((ps) => ps.piLabel === epicSelection.piLabel);
-    return piAssignment?.sprintIds;
+    if (!epicSelection) return undefined;
+    if (epicSelection.source === 'bar' && epicSelection.piLabel) {
+      const piAssignment = piSprints.find((ps) => ps.piLabel === epicSelection.piLabel);
+      return piAssignment?.sprintIds;
+    }
+    // For legend clicks, return all sprint IDs across all PIs
+    return piSprints.flatMap((ps) => ps.sprintIds);
   }, [epicSelection, piSprints]);
 
   // Fetch stories for selected epic
+  // Use All Work stories API, pass projectKey for __NO_EPIC__ queries
+  const storiesOptions = useMemo(
+    () => ({ apiUrl: '/api/all-work/stories', projectKey }),
+    [projectKey]
+  );
   const { stories, epicStatus, isLoading: storiesLoading } = useEpicStoriesData(
     epicSelection?.epicKey ?? null,
-    storiesSprintIds
+    storiesSprintIds,
+    storiesOptions
   );
 
   // URL update helper
@@ -168,7 +181,7 @@ const CapacityDemandContent = () => {
     } else {
       params.delete(key);
     }
-    const newUrl = params.toString() ? `?${params.toString()}` : '/capacity-v-demand';
+    const newUrl = params.toString() ? `?${params.toString()}` : '/all-work';
     router.push(newUrl, { scroll: false });
   }, [router]);
 
@@ -208,7 +221,7 @@ const CapacityDemandContent = () => {
       params.delete(QUERY_PARAM_KEYS.PI_DAYS_OFF);
     }
 
-    const newUrl = params.toString() ? `?${params.toString()}` : '/capacity-v-demand';
+    const newUrl = params.toString() ? `?${params.toString()}` : '/all-work';
     router.push(newUrl, { scroll: false });
   }, [router]);
 
@@ -256,9 +269,10 @@ const CapacityDemandContent = () => {
   }, []);
 
   // Auto-generate when prerequisites are met
+  // All Work requires: projectKey, piLabels, AND piSprints with at least one assignment
   useEffect(() => {
-    if (!projectKey || piLabels.length === 0) {
-      if (data && (!projectKey || piLabels.length === 0)) {
+    if (!projectKey || piLabels.length === 0 || !hasSprintsAssigned) {
+      if (data && (!projectKey || piLabels.length === 0 || !hasSprintsAssigned)) {
         clear();
       }
       return;
@@ -284,14 +298,14 @@ const CapacityDemandContent = () => {
       setEpicSelection(null);
       generate(projectKey, piLabels, piSprints, boardId);
     }
-  }, [projectKey, piLabels, piSprints, piSprintsKey, boardId, generate, clear, data]);
+  }, [projectKey, piLabels, piSprints, piSprintsKey, boardId, generate, clear, data, hasSprintsAssigned]);
 
   // Handle refresh (force refetch)
   const handleRefresh = useCallback(() => {
-    if (!projectKey || piLabels.length === 0 || isLoading) return;
+    if (!projectKey || piLabels.length === 0 || !hasSprintsAssigned || isLoading) return;
     clear();
     generate(projectKey, piLabels, piSprints, boardId);
-  }, [projectKey, piLabels, piSprints, boardId, isLoading, clear, generate]);
+  }, [projectKey, piLabels, piSprints, boardId, isLoading, clear, generate, hasSprintsAssigned]);
 
   return (
     <Box
@@ -325,6 +339,7 @@ const CapacityDemandContent = () => {
             onDeveloperCountChange={handleDeveloperCountChange}
             onSupportPercentChange={handleSupportPercentChange}
             onPiDaysOffChange={handlePiDaysOffChange}
+            sprintsRequired
           />
         </Sidebar>
         <MainContent>
@@ -365,7 +380,7 @@ const CapacityDemandContent = () => {
                 <>
                   <CircularProgress sx={{ mb: 2 }} />
                   <Typography variant="h6" gutterBottom>
-                    Loading PI Data...
+                    Loading All Work Data...
                   </Typography>
                 </>
               ) : (
@@ -373,12 +388,16 @@ const CapacityDemandContent = () => {
                   <Typography variant="h6" gutterBottom>
                     {!projectKey
                       ? 'Select a Project'
-                      : 'Select Planning Increments'}
+                      : piLabels.length === 0
+                        ? 'Select Planning Increments'
+                        : 'Assign Sprints to PIs'}
                   </Typography>
                   <Typography variant="body2">
                     {!projectKey
                       ? 'Choose a JIRA project to analyze'
-                      : 'Choose one or more PI labels to view capacity vs demand'}
+                      : piLabels.length === 0
+                        ? 'Choose one or more PI labels'
+                        : 'Associate sprints with each PI to view all work'}
                   </Typography>
                 </>
               )}
@@ -394,7 +413,7 @@ const CapacityDemandContent = () => {
             color="primary"
             aria-label="refresh"
             onClick={handleRefresh}
-            disabled={isLoading || !projectKey || piLabels.length === 0}
+            disabled={isLoading || !projectKey || piLabels.length === 0 || !hasSprintsAssigned}
             sx={{
               position: 'fixed',
               bottom: 24,
@@ -409,7 +428,7 @@ const CapacityDemandContent = () => {
   );
 };
 
-const CapacityVDemand = () => {
+const AllWork = () => {
   return (
     <Suspense
       fallback={
@@ -418,9 +437,9 @@ const CapacityVDemand = () => {
         </Box>
       }
     >
-      <CapacityDemandContent />
+      <AllWorkContent />
     </Suspense>
   );
 };
 
-export default CapacityVDemand;
+export default AllWork;

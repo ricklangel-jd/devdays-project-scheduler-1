@@ -289,13 +289,16 @@ const EpicStoriesGrid = ({ stories, isLoading, epicKey, epicStatus }: EpicStorie
     );
   }
 
+  const isNoEpic = epicKey === '__NO_EPIC__';
+  const displayEpicLabel = isNoEpic ? 'No Epic' : epicKey;
+
   // Loading state
   if (isLoading) {
     return (
       <Paper sx={{ p: 3, m: 2, textAlign: 'center' }} elevation={1}>
         <CircularProgress size={24} sx={{ mr: 1 }} />
         <Typography variant="body2" color="text.secondary" component="span">
-          Loading stories for {epicKey}...
+          Loading stories for {displayEpicLabel}...
         </Typography>
       </Paper>
     );
@@ -306,7 +309,7 @@ const EpicStoriesGrid = ({ stories, isLoading, epicKey, epicStatus }: EpicStorie
     return (
       <Paper sx={{ p: 3, m: 2, textAlign: 'center' }} elevation={1}>
         <Typography variant="body2" color="text.secondary">
-          No stories found for {epicKey}
+          No stories found for {displayEpicLabel}
         </Typography>
       </Paper>
     );
@@ -316,12 +319,12 @@ const EpicStoriesGrid = ({ stories, isLoading, epicKey, epicStatus }: EpicStorie
     <Paper sx={{ m: 2, overflow: 'hidden' }} elevation={1}>
       <Box sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
         <Typography variant="subtitle2" fontWeight="bold">
-          Stories for {epicKey}
+          Stories for {displayEpicLabel}
         </Typography>
         <Typography variant="body2" color="text.secondary">
           ({stories.length} {stories.length === 1 ? 'story' : 'stories'})
         </Typography>
-        {JIRA_BASE_URL && epicKey && (
+        {JIRA_BASE_URL && epicKey && !isNoEpic && (
           <Button
             variant="outlined"
             size="small"

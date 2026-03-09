@@ -24,6 +24,12 @@ const safeDay = (dailyCapacity: DayCapacity[], index: number): DayCapacity | und
 };
 
 /**
+ * Convert fractional devDays to the number of integer day slots needed.
+ * A ticket with 0.5 points still occupies 1 day slot; 1.5 occupies 2, etc.
+ */
+const daySlots = (devDays: number): number => Math.ceil(devDays);
+
+/**
  * Helper to get actual date from dailyCapacity array
  * endDay is exclusive, so endDate is the day before endDay (the last actual work day)
  */
@@ -464,6 +470,7 @@ const findSlotWithinSprint = (
   ticketDevDays: number,
   dailyCapacity: DayCapacity[]
 ): number => {
+  const slots = daySlots(ticketDevDays);
   let currentDayIndex = earliestStart;
 
   while (currentDayIndex < dailyCapacity.length) {
@@ -471,8 +478,8 @@ const findSlotWithinSprint = (
     const remainingDaysInSprint = sprintEndIndex - currentDayIndex + 1;
 
     // Check if ticket fits in remaining sprint days
-    if (ticketDevDays <= remainingDaysInSprint) {
-      const proposedEndDay = currentDayIndex + ticketDevDays;
+    if (slots <= remainingDaysInSprint) {
+      const proposedEndDay = currentDayIndex + slots;
       const lastOccupiedDay = proposedEndDay - 1;
 
       // Verify the last occupied day is still in the same sprint as the start
@@ -520,6 +527,7 @@ const findSlotInSpecificSprint = (
   ticketDevDays: number,
   dailyCapacity: DayCapacity[]
 ): number => {
+  const slots = daySlots(ticketDevDays);
   const sprintRange = getSprintDayRange(sprintId, dailyCapacity);
   if (!sprintRange) return -1;
 
@@ -531,10 +539,10 @@ const findSlotInSpecificSprint = (
     const remainingDaysInSprint = sprintRange.endIndex - currentDayIndex + 1;
 
     // Check if ticket fits in remaining sprint days
-    if (ticketDevDays <= remainingDaysInSprint) {
+    if (slots <= remainingDaysInSprint) {
       // Check if all days have capacity
       let allHaveCapacity = true;
-      for (let d = currentDayIndex; d < currentDayIndex + ticketDevDays; d++) {
+      for (let d = currentDayIndex; d < currentDayIndex + slots; d++) {
         if (d >= dailyCapacity.length || dailyCapacity[d].remainingCapacity <= 0) {
           allHaveCapacity = false;
           break;
@@ -635,7 +643,8 @@ const slotEpicLinear = (
     }
 
     const startDay = slotStartDay;
-    const endDay = startDay + ticket.devDays;
+    const slots = daySlots(ticket.devDays);
+    const endDay = startDay + slots;
     const lastOccupiedDay = endDay - 1;
     const sprintId = dailyCapacity[startDay].sprintId;
     const lastDaySprintId = dailyCapacity[lastOccupiedDay]?.sprintId;
@@ -688,6 +697,7 @@ const findNextAvailableSlot = (
   ticketDevDays: number,
   dailyCapacity: DayCapacity[]
 ): number => {
+  const slots = daySlots(ticketDevDays);
   let dayIndex = startFrom;
 
   while (dayIndex < dailyCapacity.length) {
@@ -695,11 +705,11 @@ const findNextAvailableSlot = (
     if (dailyCapacity[dayIndex].remainingCapacity > 0) {
       const sprintEndIndex = getSprintEndDayIndex(dayIndex, dailyCapacity);
       const remainingDaysInSprint = sprintEndIndex - dayIndex + 1;
-      const proposedEndDay = dayIndex + ticketDevDays;
+      const proposedEndDay = dayIndex + slots;
       const lastOccupiedDay = proposedEndDay - 1;
 
       // Verify ticket fits in sprint AND last occupied day is in same sprint
-      if (ticketDevDays <= remainingDaysInSprint &&
+      if (slots <= remainingDaysInSprint &&
           lastOccupiedDay < dailyCapacity.length &&
           dailyCapacity[lastOccupiedDay].sprintId === dailyCapacity[dayIndex].sprintId) {
         // Check if all days have capacity
@@ -1027,12 +1037,12 @@ export const scheduleTickets = (input: SchedulingInput): GanttData => {
         hasConstraintViolation = true;
 
         // Calculate position: end on last day of sprint
-        // startDay = lastDayOfSprint - devDays + 1 (but clamped to sprint start)
+        // startDay = lastDayOfSprint - daySlots + 1 (but clamped to sprint start)
         const lastSprintDay = sprintRange.endIndex;
-        startDayIndex = Math.max(sprintRange.startIndex, lastSprintDay - ticket.devDays + 1);
+        startDayIndex = Math.max(sprintRange.startIndex, lastSprintDay - daySlots(ticket.devDays) + 1);
       }
 
-      const endDay = startDayIndex + ticket.devDays;
+      const endDay = startDayIndex + daySlots(ticket.devDays);
 
       // Consume capacity (even for constraint violations - they still take up visual space)
       // Note: This may result in negative capacity which is intentional for violations
@@ -1216,7 +1226,7 @@ export const scheduleTickets = (input: SchedulingInput): GanttData => {
           }
         }
 
-        const pinnedEndDay = pinnedDayIndex + ticket.devDays;
+        const pinnedEndDay = pinnedDayIndex + daySlots(ticket.devDays);
 
         // Check sprint crossing
         if (ticketCrossesSprintBoundary(pinnedDayIndex, pinnedEndDay, dailyCapacity)) {
@@ -1275,7 +1285,7 @@ export const scheduleTickets = (input: SchedulingInput): GanttData => {
         continue;
       }
 
-      const endDay = slotStart + ticket.devDays;
+      const endDay = slotStart + daySlots(ticket.devDays);
       const sprintId = dailyCapacity[slotStart].sprintId;
 
       // Verify it's actually in a future sprint

@@ -31,6 +31,7 @@ interface CapacityDemandRequest {
   projectKey: string;
   piLabels: string[];
   piSprints?: PiSprintAssignment[];
+  boardId?: number;
 }
 
 interface EpicDemand {
@@ -129,13 +130,15 @@ const findEpicsForPI = async (
 };
 
 /**
- * Original algorithm: sum ALL child tickets per epic (no sprint filtering).
+ * Original algorithm: sum child tickets per epic.
+ * When boardSprintIds is provided, only count tickets in those sprints.
  * Used when piSprints is not provided.
  */
 const processWithoutSprints = async (
   piLabels: string[],
   projectKey: string,
-  client: ReturnType<typeof getJiraClient>
+  client: ReturnType<typeof getJiraClient>,
+  boardSprintIds?: Set<number>
 ): Promise<PIDemand[]> => {
   const fieldConfig = buildFieldConfig(client);
 
@@ -149,7 +152,13 @@ const processWithoutSprints = async (
         const jql = `("Epic Link" = ${epic.key} OR parent = ${epic.key}) ORDER BY key ASC`;
         const ticketsResponse = await client.searchAllIssues(jql, [STORY_POINT_ESTIMATE_FIELD]);
         const tickets = mapToTickets(ticketsResponse.issues, epic.key, fieldConfig);
-        const totalPoints = tickets.reduce((sum, t) => sum + t.devDays, 0);
+
+        // If board filtering is active, only count tickets in the board's sprints
+        const filteredTickets = boardSprintIds
+          ? tickets.filter((t) => (t.sprintIds ?? []).some((sid) => boardSprintIds.has(sid)))
+          : tickets;
+
+        const totalPoints = filteredTickets.reduce((sum, t) => sum + t.devDays, 0);
 
         epicDemands.push({
           key: epic.key,
@@ -178,12 +187,14 @@ const processWithoutSprints = async (
  * Sprint-filtered algorithm: only count non-canceled stories assigned to
  * sprints within each PI. Multi-sprint stories are assigned to the PI
  * containing the sprint with the latest start date.
+ * When boardSprintIds is provided, additionally filter to only board sprints.
  */
 const processWithSprints = async (
   piLabels: string[],
   projectKey: string,
   piSprints: PiSprintAssignment[],
-  client: ReturnType<typeof getJiraClient>
+  client: ReturnType<typeof getJiraClient>,
+  boardSprintIds?: Set<number>
 ): Promise<PIDemand[]> => {
   const fieldConfig = buildFieldConfig(client);
 
@@ -264,8 +275,11 @@ const processWithSprints = async (
         // Skip canceled tickets
         if (isCanceledStatus(ticket.status)) continue;
 
-        // Find intersection of ticket's sprints with THIS PI's sprints
-        const matchingSprints = (ticket.sprintIds ?? []).filter((sid) => sprintIds.has(sid));
+        // Find intersection of ticket's sprints with THIS PI's sprints (and board if filtering)
+        const ticketSprints = boardSprintIds
+          ? (ticket.sprintIds ?? []).filter((sid) => boardSprintIds.has(sid))
+          : (ticket.sprintIds ?? []);
+        const matchingSprints = ticketSprints.filter((sid) => sprintIds.has(sid));
         if (matchingSprints.length === 0) continue;
 
         // Find the latest sprint start date among matching sprints
@@ -321,7 +335,7 @@ const processWithSprints = async (
 export const POST = async (request: NextRequest) => {
   try {
     const body: CapacityDemandRequest = await request.json();
-    const { projectKey, piLabels, piSprints } = body;
+    const { projectKey, piLabels, piSprints, boardId } = body;
 
     if (!projectKey) {
       return NextResponse.json(
@@ -339,20 +353,37 @@ export const POST = async (request: NextRequest) => {
 
     const client = getJiraClient();
 
+    // If a board is selected, fetch all sprint IDs for that board to filter stories
+    let boardSprintIds: Set<number> | undefined;
+    if (boardId) {
+      console.log(`[Capacity/Demand] Board ${boardId} selected — fetching board sprints for filtering`);
+      const boardSprints = await client.getSprints(undefined, boardId);
+      boardSprintIds = new Set(boardSprints.map((s) => s.id));
+      console.log(`[Capacity/Demand] Board has ${boardSprintIds.size} sprints`);
+    }
+
     // Determine if sprint-filtered mode is active
     const hasSprintAssignments = piSprints && piSprints.some((ps) => ps.sprintIds.length > 0);
 
     let piData: PIDemand[];
     if (hasSprintAssignments) {
       console.log('[Capacity/Demand] Sprint-filtered mode active');
-      piData = await processWithSprints(piLabels, projectKey, piSprints!, client);
+      piData = await processWithSprints(piLabels, projectKey, piSprints!, client, boardSprintIds);
     } else {
       console.log('[Capacity/Demand] Standard mode (no sprint filtering)');
-      piData = await processWithoutSprints(piLabels, projectKey, client);
+      piData = await processWithoutSprints(piLabels, projectKey, client, boardSprintIds);
     }
 
     // Post-process stretch labels (applies to both modes)
     postProcessStretch(piData);
+
+    // When board filtering is active, remove epics with 0 total points
+    // (their stories are not in any sprint on the selected board)
+    if (boardSprintIds) {
+      for (const pi of piData) {
+        pi.epics = pi.epics.filter((e) => e.totalPoints > 0);
+      }
+    }
 
     const response: CapacityDemandResponse = { piData };
     return NextResponse.json(response);
