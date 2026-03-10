@@ -22,9 +22,10 @@ const debounce = <T extends (...args: Parameters<T>) => void>(
 interface ProjectSearchProps {
   onProjectSelect: (project: JiraProject) => void;
   selectedProjectKey?: string;
+  disabled?: boolean;
 }
 
-const ProjectSearch = ({ onProjectSelect, selectedProjectKey }: ProjectSearchProps) => {
+const ProjectSearch = ({ onProjectSelect, selectedProjectKey, disabled = false }: ProjectSearchProps) => {
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState<JiraProject[]>([]);
   const [loading, setLoading] = useState(false);
@@ -74,6 +75,7 @@ const ProjectSearch = ({ onProjectSelect, selectedProjectKey }: ProjectSearchPro
 
   return (
     <Autocomplete
+      disabled={disabled}
       open={open}
       onOpen={() => setOpen(true)}
       onClose={() => setOpen(false)}

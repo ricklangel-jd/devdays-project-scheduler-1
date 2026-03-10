@@ -217,6 +217,7 @@ const SprintCheckContent = () => {
         <Sidebar collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed}>
           <SprintCheckSidebarContent
             boardId={boardId}
+            projectKey={projectKey}
             sprintCount={sprintCount}
             isLoading={isLoading}
             engineers={data?.engineers ?? []}

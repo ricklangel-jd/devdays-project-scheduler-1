@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Autocomplete from '@mui/material/Autocomplete';
@@ -10,6 +10,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import type { JiraSprint, PiSprintAssignment } from '@/shared/types';
+import { savePiSprintMappings, loadPiSprintMappings, validateAssignments } from '@/frontend/lib/piSprintStorage';
 
 const icon = <CheckBoxOutlineBlankIcon fontSize="small" />;
 const checkedIcon = <CheckBoxIcon fontSize="small" />;
@@ -28,6 +29,7 @@ const formatDateShort = (dateStr: string): string => {
 interface PiSprintAssignerProps {
   piLabels: string[];
   boardId: number;
+  projectKey?: string;
   piSprints: PiSprintAssignment[];
   onChange: (assignments: PiSprintAssignment[]) => void;
 }
@@ -35,12 +37,23 @@ interface PiSprintAssignerProps {
 const PiSprintAssigner = ({
   piLabels,
   boardId,
+  projectKey,
   piSprints,
   onChange,
 }: PiSprintAssignerProps) => {
   const [allSprints, setAllSprints] = useState<JiraSprint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [restoredFromStorage, setRestoredFromStorage] = useState(false);
+
+  // Refs to avoid dependency loops in the auto-fill effect
+  const piSprintsRef = useRef(piSprints);
+  piSprintsRef.current = piSprints;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  // One-shot guard: only auto-fill once per board visit
+  const hasAutoFilledRef = useRef<number | null>(null);
 
   // Fetch all sprints for the board when boardId changes
   useEffect(() => {
@@ -58,7 +71,9 @@ const PiSprintAssigner = ({
       try {
         const params = new URLSearchParams();
         params.set('boardId', boardId.toString());
-        // Fetch all sprints (no state filter to include closed sprints too)
+        if (projectKey) {
+          params.set('projectKey', projectKey);
+        }
 
         const response = await fetch(`/api/sprints?${params}`);
         const data = await response.json();
@@ -89,7 +104,7 @@ const PiSprintAssigner = ({
 
     fetchSprints();
     return () => { cancelled = true; };
-  }, [boardId]);
+  }, [boardId, projectKey]);
 
   // Build a map for quick sprint lookup by ID
   const sprintMap = useMemo(() => {
@@ -99,6 +114,44 @@ const PiSprintAssigner = ({
     }
     return map;
   }, [allSprints]);
+
+  // Auto-fill from localStorage when sprints load and PIs have no assignments
+  useEffect(() => {
+    if (!boardId || allSprints.length === 0 || piLabels.length === 0) return;
+    if (hasAutoFilledRef.current === boardId) return;
+
+    const currentPiSprints = piSprintsRef.current;
+    const unassignedPIs = piLabels.filter(
+      (pi) => !currentPiSprints.some((ps) => ps.piLabel === pi && ps.sprintIds.length > 0),
+    );
+    if (unassignedPIs.length === 0) {
+      hasAutoFilledRef.current = boardId;
+      return;
+    }
+
+    const stored = loadPiSprintMappings(boardId, unassignedPIs);
+    if (!stored || stored.length === 0) {
+      hasAutoFilledRef.current = boardId;
+      return;
+    }
+
+    const validSprintIds = new Set(allSprints.map((s) => s.id));
+    const validated = validateAssignments(stored, validSprintIds);
+    if (validated.length === 0) {
+      hasAutoFilledRef.current = boardId;
+      return;
+    }
+
+    const merged = [
+      ...currentPiSprints.filter((ps) => ps.sprintIds.length > 0),
+      ...validated,
+    ];
+
+    hasAutoFilledRef.current = boardId;
+    setRestoredFromStorage(true);
+    savePiSprintMappings(boardId, merged);
+    onChangeRef.current(merged);
+  }, [allSprints, boardId, piLabels]);
 
   // Get the current sprint IDs for a specific PI label
   const getSprintIdsForPI = useCallback((piLabel: string): number[] => {
@@ -129,8 +182,11 @@ const PiSprintAssigner = ({
     }
 
     // Remove entries with no sprints
-    onChange(updated.filter((ps) => ps.sprintIds.length > 0));
-  }, [piSprints, onChange]);
+    const finalAssignments = updated.filter((ps) => ps.sprintIds.length > 0);
+    savePiSprintMappings(boardId, finalAssignments);
+    setRestoredFromStorage(false);
+    onChange(finalAssignments);
+  }, [piSprints, onChange, boardId]);
 
   if (loading) {
     return (
@@ -161,6 +217,11 @@ const PiSprintAssigner = ({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {restoredFromStorage && (
+        <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+          Sprint assignments restored from previous session
+        </Typography>
+      )}
       {piLabels.map((piLabel) => {
         const selectedSprints = getSelectedSprintsForPI(piLabel);
         const count = selectedSprints.length;

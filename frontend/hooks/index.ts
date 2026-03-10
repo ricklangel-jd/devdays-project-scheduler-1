@@ -7,3 +7,5 @@ export { useAllWorkData } from './useAllWorkData';
 export { useEpicStoriesData } from './useEpicStoriesData';
 export { useSprintCheckData } from './useSprintCheckData';
 export { useTimeSpentData } from './useTimeSpentData';
+export { usePiPlanningData } from './usePiPlanningData';
+export { useSprintMetricsData } from './useSprintMetricsData';

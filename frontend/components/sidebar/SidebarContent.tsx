@@ -120,6 +120,7 @@ const SidebarContent = ({isGenerating = false, onSprintOverlapChange}: SidebarCo
                     onChange={setSprintCapacities}
                     onOverlapError={handleOverlapError}
                     boardId={boardId}
+                    projectKey={projectKey}
                     sprintDateOverrides={sprintDateOverrides}
                     onSprintDateOverride={setSprintDateOverride}
                     onClearSprintDateOverride={clearSprintDateOverride}

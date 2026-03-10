@@ -192,6 +192,7 @@ const StepCircle = ({ step, done }: { step: number; done: boolean }) => (
 
 interface SprintViewSidebarContentProps {
   boardId?: number;
+  projectKey?: string;
   futureSprintCount: number;
   isGenerating?: boolean;
   sprintDateOverrides?: SprintDateOverride[];
@@ -206,6 +207,7 @@ interface SprintViewSidebarContentProps {
 
 const SprintViewSidebarContent = ({
   boardId,
+  projectKey,
   futureSprintCount,
   isGenerating = false,
   sprintDateOverrides = [],
@@ -236,6 +238,9 @@ const SprintViewSidebarContent = ({
       try {
         const params = new URLSearchParams();
         params.set('boardId', boardId.toString());
+        if (projectKey) {
+          params.set('projectKey', projectKey);
+        }
         const response = await fetch(`/api/sprints?${params}`);
         const data = await response.json();
         if (cancelled) return;
@@ -260,7 +265,7 @@ const SprintViewSidebarContent = ({
 
     fetchSprints();
     return () => { cancelled = true; };
-  }, [boardId]);
+  }, [boardId, projectKey]);
 
   // Compute sprint IDs: active + N future sprints (by start date)
   const { activeSprint, computedSprintIds, futureCount } = useMemo(() => {

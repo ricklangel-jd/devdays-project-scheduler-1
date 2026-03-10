@@ -44,6 +44,7 @@ const SprintViewContent = () => {
   const [slotDialogOpen, setSlotDialogOpen] = useState(false);
 
   const {
+    projectKey,
     sprintDateOverrides,
     autoAdjustStartDate,
     sidebarCollapsed,
@@ -208,6 +209,7 @@ const SprintViewContent = () => {
         <Sidebar collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed}>
           <SprintViewSidebarContent
             boardId={boardId}
+            projectKey={projectKey}
             futureSprintCount={futureSprintCount}
             isGenerating={isLoading}
             sprintDateOverrides={sprintDateOverrides}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useCallback, useRef, useEffect } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useRouter } from 'next/navigation';
 import NextLink from 'next/link';
@@ -9,10 +9,13 @@ import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
-import Tabs from '@mui/material/Tabs';
-import Tab from '@mui/material/Tab';
+import Button from '@mui/material/Button';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import ListItemText from '@mui/material/ListItemText';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import { QUERY_PARAM_KEYS } from '@/shared/types';
 import type { JiraProject } from '@/shared/types';
 import ProjectSearch from '@/frontend/components/sidebar/ProjectSearch';
@@ -33,6 +36,10 @@ const PARAMS_TO_CLEAR_ON_PROJECT_CHANGE: string[] = [
   QUERY_PARAM_KEYS.SC_SPRINTS,
   QUERY_PARAM_KEYS.TS_PI_LABELS,
   QUERY_PARAM_KEYS.TS_PI_SPRINTS,
+  QUERY_PARAM_KEYS.PP_PI,
+  QUERY_PARAM_KEYS.PP_SUPPORT_PCT,
+  QUERY_PARAM_KEYS.PP_EXCLUDE_S7,
+  QUERY_PARAM_KEYS.PP_DAYS_OFF,
 ];
 
 // Params to clear when the board changes (downstream selections across all pages)
@@ -45,6 +52,28 @@ const PARAMS_TO_CLEAR_ON_BOARD_CHANGE: string[] = [
   QUERY_PARAM_KEYS.SV_FUTURE_SPRINTS,
   QUERY_PARAM_KEYS.TS_PI_SPRINTS,
 ];
+
+// Navigation menu structure
+const NAV_MENUS = [
+  {
+    label: 'Planning',
+    items: [
+      { label: 'Schedule View', path: '/' },
+      { label: 'Sprint View', path: '/sprint-view' },
+      { label: 'Capacity v Demand', path: '/capacity-v-demand' },
+      { label: 'All Work', path: '/all-work' },
+      { label: 'PI Planning', path: '/pi-planning' },
+    ],
+  },
+  {
+    label: 'Metrics',
+    items: [
+      { label: 'Sprint Check', path: '/sprint-check' },
+      { label: 'Time Spent', path: '/time-spent' },
+      { label: 'Sprint Metrics', path: '/sprint-metrics' },
+    ],
+  },
+] as const;
 
 interface HeaderProps {
   connectionStatus?: {
@@ -62,7 +91,42 @@ const Header = ({ connectionStatus }: HeaderProps) => {
     searchParamsRef.current = searchParams;
   });
 
-  const currentTab = pathname === '/time-spent' ? 5 : pathname === '/sprint-check' ? 4 : pathname === '/all-work' ? 3 : pathname === '/capacity-v-demand' ? 2 : pathname === '/sprint-view' ? 1 : 0;
+  // Menu anchor state — tracks which menu is open
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+
+  const handleMenuOpen = useCallback((event: React.MouseEvent<HTMLElement>, menuLabel: string) => {
+    setAnchorEl(event.currentTarget);
+    setOpenMenu(menuLabel);
+  }, []);
+
+  const handleMenuClose = useCallback(() => {
+    setAnchorEl(null);
+    setOpenMenu(null);
+  }, []);
+
+  // Determine which menu group the current page belongs to
+  const activeMenuLabel = useMemo(() => {
+    for (const menu of NAV_MENUS) {
+      const match = menu.items.some((item) =>
+        item.path === '/' ? pathname === '/' : pathname === item.path
+      );
+      if (match) return menu.label;
+    }
+    return null;
+  }, [pathname]);
+
+  // Find the active page label for display in the button
+  const activePageLabel = useMemo(() => {
+    for (const menu of NAV_MENUS) {
+      for (const item of menu.items) {
+        const isActive = item.path === '/' ? pathname === '/' : pathname === item.path;
+        if (isActive) return item.label;
+      }
+    }
+    return null;
+  }, [pathname]);
+
   const projectKey = searchParams.get(QUERY_PARAM_KEYS.PROJECT) ?? undefined;
   const boardIdParam = searchParams.get(QUERY_PARAM_KEYS.BOARD);
   const boardId = boardIdParam ? parseInt(boardIdParam, 10) || undefined : undefined;
@@ -87,6 +151,9 @@ const Header = ({ connectionStatus }: HeaderProps) => {
   ];
 
   const isTimeSpent = pathname === '/time-spent';
+
+  // Sprint Metrics manages its own project/board selections
+  const isSprintMetrics = pathname === '/sprint-metrics';
 
   // Handle project selection — set project and clear downstream params
   const handleProjectSelect = useCallback((project: JiraProject) => {
@@ -120,50 +187,83 @@ const Header = ({ connectionStatus }: HeaderProps) => {
         <Typography variant="h6" component="h1" sx={{ mr: 2 }}>
           DevDays
         </Typography>
-        <Tabs
-          value={currentTab}
-          sx={{
-            flexGrow: 1,
-            minHeight: 48,
-            '& .MuiTab-root': { minHeight: 48 },
-          }}
-        >
-          <Tab
-            label="Schedule View"
-            component={NextLink}
-            href={`/${preservedQueryString}`}
-          />
-          <Tab
-            label="Sprint View"
-            component={NextLink}
-            href={`/sprint-view${preservedQueryString}`}
-          />
-          <Tab
-            label="Capacity v Demand"
-            component={NextLink}
-            href={`/capacity-v-demand${preservedQueryString}`}
-          />
-          <Tab
-            label="All Work"
-            component={NextLink}
-            href={`/all-work${preservedQueryString}`}
-          />
-          <Tab
-            label="Sprint Check"
-            component={NextLink}
-            href={`/sprint-check${preservedQueryString}`}
-          />
-          <Tab
-            label="Time Spent"
-            component={NextLink}
-            href={`/time-spent${preservedQueryString}`}
-          />
-        </Tabs>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexGrow: 1 }}>
+          {NAV_MENUS.map((menu) => {
+            const isActiveGroup = activeMenuLabel === menu.label;
+            const menuId = `nav-menu-${menu.label.toLowerCase()}`;
+
+            return (
+              <Box key={menu.label}>
+                <Button
+                  id={`${menuId}-button`}
+                  aria-controls={openMenu === menu.label ? menuId : undefined}
+                  aria-haspopup="true"
+                  aria-expanded={openMenu === menu.label ? 'true' : undefined}
+                  onClick={(e) => handleMenuOpen(e, menu.label)}
+                  endIcon={<KeyboardArrowDownIcon />}
+                  sx={{
+                    textTransform: 'none',
+                    fontWeight: isActiveGroup ? 700 : 400,
+                    color: isActiveGroup ? 'primary.main' : 'text.primary',
+                    borderBottom: isActiveGroup ? 2 : 0,
+                    borderColor: 'primary.main',
+                    borderRadius: 0,
+                    px: 2,
+                    minHeight: 48,
+                  }}
+                >
+                  {menu.label}
+                </Button>
+                <Menu
+                  id={menuId}
+                  anchorEl={anchorEl}
+                  open={openMenu === menu.label}
+                  onClose={handleMenuClose}
+                  MenuListProps={{ 'aria-labelledby': `${menuId}-button` }}
+                  anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                  transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                >
+                  {menu.items.map((item) => {
+                    const href = item.path === '/'
+                      ? `/${preservedQueryString}`
+                      : `${item.path}${preservedQueryString}`;
+                    const isActive = item.path === '/'
+                      ? pathname === '/'
+                      : pathname === item.path;
+
+                    return (
+                      <MenuItem
+                        key={item.path}
+                        component={NextLink}
+                        href={href}
+                        selected={isActive}
+                        onClick={handleMenuClose}
+                      >
+                        <ListItemText>{item.label}</ListItemText>
+                      </MenuItem>
+                    );
+                  })}
+                </Menu>
+              </Box>
+            );
+          })}
+
+          {/* Show active page name */}
+          {activePageLabel && (
+            <Typography
+              variant="body2"
+              sx={{ ml: 1, color: 'text.secondary', fontStyle: 'italic' }}
+            >
+              {activePageLabel}
+            </Typography>
+          )}
+        </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: 2 }}>
           <Box sx={{ width: 250 }}>
             <ProjectSearch
               onProjectSelect={handleProjectSelect}
               selectedProjectKey={projectKey}
+              disabled={isSprintMetrics}
             />
           </Box>
           {projectKey && (
@@ -179,7 +279,7 @@ const Header = ({ connectionStatus }: HeaderProps) => {
               projectKey={projectKey}
               selectedBoardId={boardId}
               onBoardSelect={handleBoardSelect}
-              disabled={!projectKey}
+              disabled={isSprintMetrics || !projectKey}
             />
           </Box>
           {connectionStatus?.connected ? (

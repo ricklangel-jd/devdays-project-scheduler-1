@@ -47,6 +47,13 @@ export const QUERY_PARAM_KEYS = {
   SV_FUTURE_SPRINTS: 'svFutureSprints',
   TS_PI_LABELS: 'tsPiLabels',
   TS_PI_SPRINTS: 'tsPiSprints',
+  PP_PI: 'ppPi',
+  PP_SUPPORT_PCT: 'ppSup',
+  PP_EXCLUDE_S7: 'ppNoS7',
+  PP_DAYS_OFF: 'ppDaysOff',
+  SM_SELECTIONS: 'smSel',
+  SM_SPRINTS_BACK: 'smBack',
+  SM_CAPACITIES: 'smCap',
 } as const;
 
 /**

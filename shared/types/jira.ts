@@ -39,6 +39,7 @@ export interface JiraSprint {
   state: 'active' | 'closed' | 'future';
   startDate: string;     // ISO date string
   endDate: string;       // ISO date string
+  originBoardId?: number;
 }
 
 /**
@@ -101,6 +102,7 @@ export interface JiraSprintResponse {
   state: string;
   startDate?: string;
   endDate?: string;
+  originBoardId?: number;
 }
 
 export interface JiraSearchResponse {

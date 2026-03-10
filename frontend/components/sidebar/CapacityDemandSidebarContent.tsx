@@ -273,6 +273,7 @@ const CapacityDemandSidebarContent = ({
             <PiSprintAssigner
               piLabels={piLabels}
               boardId={boardId!}
+              projectKey={projectKey}
               piSprints={piSprints}
               onChange={onPiSprintsChange}
             />

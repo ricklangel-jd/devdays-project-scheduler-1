@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getJiraClient, mapToTickets } from '@/backend/jira';
+import { getJiraClient, mapToTickets, EXCLUDE_MAINFRAME } from '@/backend/jira';
 import type { FieldConfig } from '@/backend/jira/mappers';
 import type { JiraTicket } from '@/shared/types';
 
@@ -96,7 +96,7 @@ const findEpicsForPI = async (
   projectKey: string,
   client: ReturnType<typeof getJiraClient>
 ): Promise<{ key: string; summary: string; isStretch: boolean }[]> => {
-  const jql = `labels = "${label}" AND project = ${projectKey} AND status != "Canceled" ORDER BY key ASC`;
+  const jql = `labels = "${label}" AND ${EXCLUDE_MAINFRAME} AND project = ${projectKey} AND status != "Canceled" ORDER BY key ASC`;
   console.log(`[Capacity/Demand] Searching: ${jql}`);
   const epicsResponse = await client.searchAllIssues(jql, ['issuetype']);
   console.log(`[Capacity/Demand] Label "${label}": found ${epicsResponse.issues.length} issues`);
@@ -149,7 +149,7 @@ const processWithoutSprints = async (
     for (const epic of epics) {
       try {
         // Request story_point_estimate as extra field for fallback
-        const jql = `("Epic Link" = ${epic.key} OR parent = ${epic.key}) ORDER BY key ASC`;
+        const jql = `("Epic Link" = ${epic.key} OR parent = ${epic.key}) AND ${EXCLUDE_MAINFRAME} ORDER BY key ASC`;
         const ticketsResponse = await client.searchAllIssues(jql, [STORY_POINT_ESTIMATE_FIELD]);
         const tickets = mapToTickets(ticketsResponse.issues, epic.key, fieldConfig);
 
@@ -247,7 +247,7 @@ const processWithSprints = async (
 
   const ticketFetchPromises = Array.from(allEpicKeys).map(async (epicKey) => {
     try {
-      const jql = `("Epic Link" = ${epicKey} OR parent = ${epicKey}) ORDER BY key ASC`;
+      const jql = `("Epic Link" = ${epicKey} OR parent = ${epicKey}) AND ${EXCLUDE_MAINFRAME} ORDER BY key ASC`;
       // Request story_point_estimate as extra field for fallback
       const response = await client.searchAllIssues(jql, [STORY_POINT_ESTIMATE_FIELD]);
       const tickets = mapToTickets(response.issues, epicKey, fieldConfig);

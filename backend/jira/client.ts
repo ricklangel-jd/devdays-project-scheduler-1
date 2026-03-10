@@ -9,6 +9,44 @@ import type {
 } from '@/shared/types';
 
 /**
+ * Response from the Greenhopper sprint report API.
+ * Used to determine which issues were added mid-sprint vs. present at sprint start.
+ */
+export interface SprintReportResponse {
+  contents: {
+    completedIssues: SprintReportIssue[];
+    issuesNotCompletedInCurrentSprint: SprintReportIssue[];
+    puntedIssues: SprintReportIssue[];
+    issueKeysAddedDuringSprint: Record<string, boolean>;
+  };
+}
+
+interface SprintReportIssue {
+  key: string;
+  estimateStatistic?: {
+    statFieldValue?: {
+      value?: number;
+    };
+  };
+  currentEstimateStatistic?: {
+    statFieldValue?: {
+      value?: number;
+    };
+  };
+}
+
+/**
+ * JQL clause to exclude issues with the "Mainframe" label.
+ * Applied to all epic and story queries so Mainframe work is never shown.
+ *
+ * Note: Must use `NOT labels = "X"` instead of `labels != "X"` because
+ * labels is a multi-value field. `labels != "X"` means "has any label
+ * that is not X" (true even if Mainframe is present alongside other labels).
+ * `NOT labels = "X"` means "does not have X as a label" which is correct.
+ */
+export const EXCLUDE_MAINFRAME = 'NOT labels = "Mainframe"';
+
+/**
  * Configuration for JIRA API client
  * All values come from environment variables
  */
@@ -208,7 +246,7 @@ export class JiraClient {
    * Search for epics by partial key or summary
    */
   searchEpics = async (query: string): Promise<JiraSearchResponse> => {
-    const jql = `issuetype = Epic AND (key ~ "${query}" OR summary ~ "${query}") ORDER BY key ASC`;
+    const jql = `issuetype = Epic AND ${EXCLUDE_MAINFRAME} AND (key ~ "${query}" OR summary ~ "${query}") ORDER BY key ASC`;
     return this.searchIssues(jql);
   };
 
@@ -216,7 +254,7 @@ export class JiraClient {
    * Get all issues (stories/tasks) under an epic
    */
   getEpicIssues = async (epicKey: string): Promise<JiraSearchResponse> => {
-    const jql = `"Epic Link" = ${epicKey} OR parent = ${epicKey} ORDER BY key ASC`;
+    const jql = `("Epic Link" = ${epicKey} OR parent = ${epicKey}) AND ${EXCLUDE_MAINFRAME} ORDER BY key ASC`;
     return this.searchIssues(jql);
   };
 
@@ -230,7 +268,7 @@ export class JiraClient {
    * JIRA does NOT support: name search, date range filtering
    * Those must be done post-fetch by the caller.
    */
-  getSprints = async (state?: 'active' | 'closed' | 'future', boardId?: number): Promise<JiraSprintResponse[]> => {
+  getSprints = async (state?: string, boardId?: number): Promise<JiraSprintResponse[]> => {
     const targetBoardId = boardId ?? this.config.boardId;
     const allSprints: JiraSprintResponse[] = [];
     let startAt = 0;
@@ -385,6 +423,17 @@ export class JiraClient {
   };
 
   /**
+   * Get the sprint report from Greenhopper API.
+   * Returns which issues were added mid-sprint (issueKeysAddedDuringSprint)
+   * and categorized issue lists (completed, not completed, punted).
+   */
+  getSprintReport = async (boardId: number, sprintId: number): Promise<SprintReportResponse> => {
+    return this.fetch<SprintReportResponse>(
+      `/rest/greenhopper/1.0/rapid/charts/sprintreport?rapidViewId=${boardId}&sprintId=${sprintId}`
+    );
+  };
+
+  /**
    * Get the custom field IDs for reference
    */
   getFieldConfig = () => ({
@@ -411,10 +460,31 @@ export class JiraClient {
   };
 
   /**
+   * Update an issue using both `fields` and `update` operations in a single PUT.
+   * Use this when you need add/remove operations (e.g., labels) alongside field updates.
+   * - `fields` overwrites the entire field value
+   * - `update` supports add/remove for multi-value fields like labels
+   */
+  updateIssueAdvanced = async (
+    issueKey: string,
+    fields?: Record<string, unknown>,
+    update?: Record<string, Array<Record<string, unknown>>>
+  ): Promise<void> => {
+    const body: Record<string, unknown> = {};
+    if (fields) body.fields = fields;
+    if (update) body.update = update;
+
+    await this.fetch(`/rest/api/3/issue/${issueKey}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  };
+
+  /**
    * Get tickets in a sprint that are NOT linked to any of the specified epics
    */
   getSprintTicketsExcludingEpics = async (sprintId: number, epicKeys: string[]): Promise<JiraSearchResponse> => {
-    let jql = `sprint = ${sprintId}`;
+    let jql = `sprint = ${sprintId} AND ${EXCLUDE_MAINFRAME}`;
 
     if (epicKeys.length > 0) {
       // Build exclusion clause for epic links and parent relationships

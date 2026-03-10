@@ -175,6 +175,7 @@ export const mapToSprint = (sprint: JiraSprintResponse): JiraSprint => ({
   state: sprint.state as 'active' | 'closed' | 'future',
   startDate: sprint.startDate ?? '',
   endDate: sprint.endDate ?? '',
+  originBoardId: sprint.originBoardId,
 });
 
 /**

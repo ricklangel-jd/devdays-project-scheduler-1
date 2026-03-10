@@ -38,6 +38,7 @@ const StepCircle = ({ step, done }: StepCircleProps) => (
 
 interface SprintCheckSidebarContentProps {
   boardId?: number;
+  projectKey?: string;
   sprintCount: number;
   isLoading: boolean;
   engineers: string[];
@@ -53,6 +54,7 @@ interface SprintCheckSidebarContentProps {
 
 const SprintCheckSidebarContent = ({
   boardId,
+  projectKey,
   sprintCount,
   isLoading,
   engineers,
@@ -88,6 +90,9 @@ const SprintCheckSidebarContent = ({
       try {
         const params = new URLSearchParams();
         params.set('boardId', boardId.toString());
+        if (projectKey) {
+          params.set('projectKey', projectKey);
+        }
 
         const response = await fetch(`/api/sprints?${params}`);
         const data = await response.json();
@@ -117,7 +122,7 @@ const SprintCheckSidebarContent = ({
 
     fetchSprints();
     return () => { cancelled = true; };
-  }, [boardId]);
+  }, [boardId, projectKey]);
 
   // Compute which sprint IDs to use based on count + fetched sprints
   const { activeSprint, computedSprintIds, pastSprintCount } = useMemo(() => {

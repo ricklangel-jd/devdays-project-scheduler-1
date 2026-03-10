@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getJiraClient } from '@/backend/jira';
+import { getJiraClient, EXCLUDE_MAINFRAME } from '@/backend/jira';
 import type { FieldConfig } from '@/backend/jira/mappers';
 import type { EpicStoryRow } from '@/shared/types';
 
@@ -98,7 +98,7 @@ export const POST = async (request: NextRequest) => {
       }
 
       const sprintIdsList = sprintIds.join(',');
-      const jql = `project = ${projectKey} AND sprint in (${sprintIdsList}) AND issuetype in (Story, "Service Ticket") AND "Epic Link" is EMPTY AND status != "Canceled" ORDER BY key ASC`;
+      const jql = `project = ${projectKey} AND sprint in (${sprintIdsList}) AND issuetype in (Story, "Service Ticket") AND "Epic Link" is EMPTY AND ${EXCLUDE_MAINFRAME} AND status != "Canceled" ORDER BY key ASC`;
       console.log(`[AllWork Stories] Fetching No Epic stories: ${jql}`);
 
       const response = await client.searchAllIssues(jql, [STORY_POINT_ESTIMATE_FIELD]);
@@ -142,7 +142,7 @@ export const POST = async (request: NextRequest) => {
     }
 
     // Standard flow: fetch child stories of a real epic (same as capacity-demand)
-    const jql = `("Epic Link" = ${epicKey} OR parent = ${epicKey}) AND status != "Canceled" ORDER BY key ASC`;
+    const jql = `("Epic Link" = ${epicKey} OR parent = ${epicKey}) AND ${EXCLUDE_MAINFRAME} AND status != "Canceled" ORDER BY key ASC`;
     console.log(`[AllWork Stories] Fetching stories for ${epicKey}: ${jql}`);
 
     const [epicIssue, response] = await Promise.all([

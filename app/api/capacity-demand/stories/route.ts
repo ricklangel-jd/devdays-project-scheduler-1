@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getJiraClient } from '@/backend/jira';
+import { getJiraClient, EXCLUDE_MAINFRAME } from '@/backend/jira';
 import type { FieldConfig } from '@/backend/jira/mappers';
 import type { EpicStoryRow } from '@/shared/types';
 
@@ -90,7 +90,7 @@ export const POST = async (request: NextRequest) => {
     const fieldConfig = buildFieldConfig(client);
 
     // Fetch epic status and child stories in parallel
-    const jql = `("Epic Link" = ${epicKey} OR parent = ${epicKey}) AND status != "Canceled" ORDER BY key ASC`;
+    const jql = `("Epic Link" = ${epicKey} OR parent = ${epicKey}) AND ${EXCLUDE_MAINFRAME} AND status != "Canceled" ORDER BY key ASC`;
     console.log(`[Stories] Fetching stories for ${epicKey}: ${jql}`);
 
     const [epicIssue, response] = await Promise.all([

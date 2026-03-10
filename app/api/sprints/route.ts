@@ -8,6 +8,7 @@ import { parseDate } from '@/shared/utils/dates';
  * Query params:
  * - state: 'active' | 'closed' | 'future' (passed to JIRA API)
  * - boardId: number (passed to JIRA API)
+ * - projectKey: string (filters sprints whose name starts with this project code)
  * - q: string (name filter - applied post-fetch, JIRA API doesn't support name search)
  *
  * Note: The JIRA Board Sprint API (/rest/agile/1.0/board/{boardId}/sprint) only supports
@@ -18,13 +19,27 @@ export const GET = async (request: NextRequest) => {
   const state = searchParams.get('state') as 'active' | 'closed' | 'future' | null;
   const boardIdParam = searchParams.get('boardId');
   const boardId = boardIdParam ? parseInt(boardIdParam, 10) : undefined;
+  const projectKey = searchParams.get('projectKey');
   const filterQuery = searchParams.get('q')?.toLowerCase();
 
   try {
     const client = getJiraClient();
-    // State and boardId are passed to JIRA API
-    const sprintsResponse = await client.getSprints(state ?? undefined, boardId);
+    // Explicitly request all states when no filter provided
+    // (JIRA board sprint API may not return closed sprints by default)
+    const sprintState = state ?? 'active,closed,future';
+    const sprintsResponse = await client.getSprints(sprintState, boardId);
     let sprints = mapToSprints(sprintsResponse);
+
+    // Filter sprints by project key prefix in the sprint name.
+    // Sprint names always start with the project code (e.g. "ABC Sprint 1").
+    // This reliably filters out sprints from other projects that share the board,
+    // including closed sprints (which originBoardId filtering incorrectly excluded).
+    if (projectKey) {
+      const prefix = projectKey.toUpperCase();
+      sprints = sprints.filter((sprint) =>
+        sprint.name.toUpperCase().startsWith(prefix)
+      );
+    }
 
     // Name filtering must be done post-fetch (JIRA Sprint API doesn't support name search)
     if (filterQuery) {

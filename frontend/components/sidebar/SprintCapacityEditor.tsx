@@ -73,6 +73,7 @@ interface SprintCapacityEditorProps {
   onOverlapError?: (hasOverlap: boolean) => void;
   defaultCapacity?: number;
   boardId?: number;
+  projectKey?: string;
   sprintDateOverrides?: SprintDateOverride[];
   onSprintDateOverride?: (sprintId: number, startDate: string, endDate: string) => void;
   onClearSprintDateOverride?: (sprintId: number) => void;
@@ -224,6 +225,7 @@ const SprintCapacityEditor = ({
   onOverlapError,
   defaultCapacity = 20,
   boardId,
+  projectKey,
   sprintDateOverrides = [],
   onSprintDateOverride,
   onClearSprintDateOverride,
@@ -315,6 +317,9 @@ const SprintCapacityEditor = ({
     try {
       const params = new URLSearchParams();
       params.set('boardId', boardId.toString());
+      if (projectKey) {
+        params.set('projectKey', projectKey);
+      }
       if (query) {
         params.set('q', query);
       }

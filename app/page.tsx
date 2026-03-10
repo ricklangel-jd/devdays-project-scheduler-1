@@ -30,6 +30,7 @@ const HomeContent = () => {
   const [slotDialogOpen, setSlotDialogOpen] = useState(false);
 
   const {
+    projectKey,
     epicKeys,
     epics,
     sprintCapacities,

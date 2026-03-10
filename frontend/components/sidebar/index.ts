@@ -11,3 +11,4 @@ export { default as CapacityDemandSidebarContent } from './CapacityDemandSidebar
 export { default as PiSprintAssigner } from './PiSprintAssigner';
 export { default as SprintCheckSidebarContent } from './SprintCheckSidebarContent';
 export { default as TimeSpentSidebarContent } from './TimeSpentSidebarContent';
+export { default as PiPlanningSidebarContent } from './PiPlanningSidebarContent';

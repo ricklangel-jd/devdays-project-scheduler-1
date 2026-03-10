@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getJiraClient, mapToTicketAutoEpic } from '@/backend/jira';
+import { getJiraClient, mapToTicketAutoEpic, EXCLUDE_MAINFRAME } from '@/backend/jira';
 import type { FieldConfig } from '@/backend/jira/mappers';
 import type { JiraTicket } from '@/shared/types';
 
@@ -158,7 +158,7 @@ export const POST = async (request: NextRequest) => {
       if (ps.sprintIds.length === 0) continue;
 
       const sprintIdsList = ps.sprintIds.join(',');
-      const jql = `project = ${projectKey} AND sprint in (${sprintIdsList}) AND issuetype in (Story, "Service Ticket") AND status != "Canceled" ORDER BY key ASC`;
+      const jql = `project = ${projectKey} AND sprint in (${sprintIdsList}) AND issuetype in (Story, "Service Ticket") AND ${EXCLUDE_MAINFRAME} AND status != "Canceled" ORDER BY key ASC`;
       console.log(`[AllWork] PI "${ps.piLabel}": ${jql}`);
 
       const response = await client.searchAllIssues(jql, [STORY_POINT_ESTIMATE_FIELD]);
