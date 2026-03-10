@@ -31,6 +31,8 @@ const PARAMS_TO_CLEAR_ON_PROJECT_CHANGE: string[] = [
   QUERY_PARAM_KEYS.PI_SPRINTS,
   QUERY_PARAM_KEYS.PI_DAYS_OFF,
   QUERY_PARAM_KEYS.SC_SPRINTS,
+  QUERY_PARAM_KEYS.TS_PI_LABELS,
+  QUERY_PARAM_KEYS.TS_PI_SPRINTS,
 ];
 
 // Params to clear when the board changes (downstream selections across all pages)
@@ -40,6 +42,8 @@ const PARAMS_TO_CLEAR_ON_BOARD_CHANGE: string[] = [
   QUERY_PARAM_KEYS.SPRINT_DATES,
   QUERY_PARAM_KEYS.PI_SPRINTS,
   QUERY_PARAM_KEYS.SC_SPRINTS,
+  QUERY_PARAM_KEYS.SV_FUTURE_SPRINTS,
+  QUERY_PARAM_KEYS.TS_PI_SPRINTS,
 ];
 
 interface HeaderProps {
@@ -58,7 +62,7 @@ const Header = ({ connectionStatus }: HeaderProps) => {
     searchParamsRef.current = searchParams;
   });
 
-  const currentTab = pathname === '/sprint-check' ? 4 : pathname === '/all-work' ? 3 : pathname === '/capacity-v-demand' ? 2 : pathname === '/sprint-view' ? 1 : 0;
+  const currentTab = pathname === '/time-spent' ? 5 : pathname === '/sprint-check' ? 4 : pathname === '/all-work' ? 3 : pathname === '/capacity-v-demand' ? 2 : pathname === '/sprint-view' ? 1 : 0;
   const projectKey = searchParams.get(QUERY_PARAM_KEYS.PROJECT) ?? undefined;
   const boardIdParam = searchParams.get(QUERY_PARAM_KEYS.BOARD);
   const boardId = boardIdParam ? parseInt(boardIdParam, 10) || undefined : undefined;
@@ -76,29 +80,39 @@ const Header = ({ connectionStatus }: HeaderProps) => {
     return qs ? `?${qs}` : '';
   }, [searchParams]);
 
-  // Handle project selection — set project and clear all downstream params
+  // Params that Time Spent preserves across project/board changes
+  const TIME_SPENT_PRESERVED: string[] = [
+    QUERY_PARAM_KEYS.TS_PI_LABELS,
+    QUERY_PARAM_KEYS.TS_PI_SPRINTS,
+  ];
+
+  const isTimeSpent = pathname === '/time-spent';
+
+  // Handle project selection — set project and clear downstream params
   const handleProjectSelect = useCallback((project: JiraProject) => {
     const params = new URLSearchParams(searchParamsRef.current.toString());
     params.set(QUERY_PARAM_KEYS.PROJECT, project.key);
     for (const key of PARAMS_TO_CLEAR_ON_PROJECT_CHANGE) {
+      if (isTimeSpent && TIME_SPENT_PRESERVED.includes(key)) continue;
       params.delete(key);
     }
     const qs = params.toString();
     const newUrl = qs ? `${pathname}?${qs}` : pathname;
     router.push(newUrl, { scroll: false });
-  }, [router, pathname]);
+  }, [router, pathname, isTimeSpent]);
 
-  // Handle board selection — set board and clear all downstream params
+  // Handle board selection — set board and clear downstream params
   const handleBoardSelect = useCallback((selectedBoardId: number) => {
     const params = new URLSearchParams(searchParamsRef.current.toString());
     params.set(QUERY_PARAM_KEYS.BOARD, selectedBoardId.toString());
     for (const key of PARAMS_TO_CLEAR_ON_BOARD_CHANGE) {
+      if (isTimeSpent && TIME_SPENT_PRESERVED.includes(key)) continue;
       params.delete(key);
     }
     const qs = params.toString();
     const newUrl = qs ? `${pathname}?${qs}` : pathname;
     router.push(newUrl, { scroll: false });
-  }, [router, pathname]);
+  }, [router, pathname, isTimeSpent]);
 
   return (
     <AppBar position="static" color="default" elevation={1}>
@@ -138,6 +152,11 @@ const Header = ({ connectionStatus }: HeaderProps) => {
             label="Sprint Check"
             component={NextLink}
             href={`/sprint-check${preservedQueryString}`}
+          />
+          <Tab
+            label="Time Spent"
+            component={NextLink}
+            href={`/time-spent${preservedQueryString}`}
           />
         </Tabs>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: 2 }}>

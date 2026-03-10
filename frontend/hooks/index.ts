@@ -6,3 +6,4 @@ export { useCapacityDemandData } from './useCapacityDemandData';
 export { useAllWorkData } from './useAllWorkData';
 export { useEpicStoriesData } from './useEpicStoriesData';
 export { useSprintCheckData } from './useSprintCheckData';
+export { useTimeSpentData } from './useTimeSpentData';
