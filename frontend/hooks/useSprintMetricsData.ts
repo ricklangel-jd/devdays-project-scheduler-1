@@ -4,14 +4,27 @@ import { useState, useCallback, useRef } from 'react';
 
 // ── Types mirroring API response ──────────────────────────────────────
 
+export interface SprintMetricsIssue {
+  key: string;
+  summary: string;
+  sprintName: string;
+  points: number;
+  categories: string[];
+}
+
 export interface SprintMetricsRow {
   projectKey: string;
+  projectName: string;
   sprintName: string;
   startDate: string;
   endDate: string;
   day1Points: number;
   resolvedPoints: number;
   lastDayPoints: number;
+  scopeChangePoints: number;
+  carryoverPoints: number;
+  serviceDeskHoursResolved: number;
+  issues: SprintMetricsIssue[];
 }
 
 export interface SprintMetricsGrid {
@@ -32,6 +45,7 @@ interface CachedData {
 export interface Selection {
   projectKey: string;
   boardId: number;
+  projectName: string;
 }
 
 interface UseSprintMetricsDataResult {

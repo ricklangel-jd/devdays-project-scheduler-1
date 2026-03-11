@@ -54,6 +54,7 @@ export const QUERY_PARAM_KEYS = {
   SM_SELECTIONS: 'smSel',
   SM_SPRINTS_BACK: 'smBack',
   SM_CAPACITIES: 'smCap',
+  SM_ENGINEERS: 'smEng',
 } as const;
 
 /**

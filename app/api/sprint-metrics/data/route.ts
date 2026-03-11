@@ -19,18 +19,31 @@ const buildFieldConfig = (client: ReturnType<typeof getJiraClient>): FieldConfig
 // ── Request / Response types ──────────────────────────────────────────
 
 interface SprintMetricsRequest {
-  selections: { projectKey: string; boardId: number }[];
+  selections: { projectKey: string; boardId: number; projectName?: string }[];
   sprintsBack: number;
+}
+
+interface SprintMetricsIssue {
+  key: string;
+  summary: string;
+  sprintName: string;
+  points: number;
+  categories: string[];  // 'day1' | 'resolved' | 'lastDay' | 'scopeChange' | 'carryover' | 'serviceDesk'
 }
 
 interface SprintMetricsRow {
   projectKey: string;
+  projectName: string;
   sprintName: string;
   startDate: string;
   endDate: string;
   day1Points: number;
   resolvedPoints: number;
   lastDayPoints: number;
+  scopeChangePoints: number;
+  carryoverPoints: number;
+  serviceDeskHoursResolved: number;
+  issues: SprintMetricsIssue[];
 }
 
 interface SprintMetricsGrid {
@@ -109,11 +122,15 @@ export const POST = async (request: NextRequest) => {
     };
 
     // ── Per-selection: find sprints, compute metrics ──────────────────
+    // Process selections sequentially and sprints sequentially to avoid
+    // Jira rate limits (each sprint still runs its 2-3 API calls in parallel).
 
     // Each selection yields: { offset → SprintMetricsRow }
     type SelectionResult = Map<number, SprintMetricsRow>;
 
-    const selectionPromises = selections.map(async ({ projectKey, boardId }): Promise<SelectionResult> => {
+    const selectionResults: SelectionResult[] = [];
+
+    for (const { projectKey, boardId, projectName } of selections) {
       const result: SelectionResult = new Map();
 
       // 1. Fetch all active + closed sprints for this board
@@ -126,7 +143,10 @@ export const POST = async (request: NextRequest) => {
         .filter((s) => s.startDate)
         .sort((a, b) => a.startDate.localeCompare(b.startDate));
 
-      if (projectSprints.length === 0) return result;
+      if (projectSprints.length === 0) {
+        selectionResults.push(result);
+        continue;
+      }
 
       // 3. Find the active sprint (last one with state "active") or most recent closed
       const activeSprint = projectSprints.find((s) =>
@@ -136,79 +156,161 @@ export const POST = async (request: NextRequest) => {
 
       // 4. Collect sprints: offset 0 = latest, then N closed before it
       const latestIdx = projectSprints.indexOf(latestSprint);
-      const sprintsToProcess: { sprint: typeof latestSprint; offset: number }[] = [];
+      const sprintsToProcess: { sprint: typeof latestSprint; offset: number; prevSprintId: number | null }[] = [];
 
       // Offset 0 = current/latest sprint
-      sprintsToProcess.push({ sprint: latestSprint, offset: 0 });
+      sprintsToProcess.push({
+        sprint: latestSprint,
+        offset: 0,
+        prevSprintId: latestIdx > 0 ? projectSprints[latestIdx - 1].id : null,
+      });
 
       // Historical sprints (offsets -1, -2, ...)
       for (let i = 1; i <= sprintsBack; i++) {
         const idx = latestIdx - i;
         if (idx < 0) break;
-        sprintsToProcess.push({ sprint: projectSprints[idx], offset: -i });
+        sprintsToProcess.push({
+          sprint: projectSprints[idx],
+          offset: -i,
+          prevSprintId: idx > 0 ? projectSprints[idx - 1].id : null,
+        });
       }
 
       // 5. Get done statuses for this board
       const doneStatuses = await getDoneStatusesCached(boardId);
       const doneStatusSet = new Set(doneStatuses.map((s) => s.toLowerCase()));
 
-      // 6. Process each sprint in parallel
-      await Promise.all(
-        sprintsToProcess.map(async ({ sprint, offset }) => {
-          // Fetch issues via JQL (uses app's standard point calculation)
-          const jql = `sprint = ${sprint.id} AND project = "${projectKey}" AND issuetype in (Story, Task, "Service Ticket") AND ${EXCLUDE_MAINFRAME}`;
-          const [issuesResponse, sprintReport] = await Promise.all([
-            client.searchAllIssues(jql),
-            client.getSprintReport(boardId, sprint.id),
-          ]);
+      // 6. Process each sprint sequentially (API calls within a sprint still parallel)
+      for (const { sprint, offset, prevSprintId } of sprintsToProcess) {
+        // Fetch issues via JQL (uses app's standard point calculation)
+        const jql = `sprint = ${sprint.id} AND project = "${projectKey}" AND issuetype in (Story, Task, "Service Ticket") AND ${EXCLUDE_MAINFRAME}`;
 
-          const addedKeys = new Set(
-            Object.keys(sprintReport.contents.issueKeysAddedDuringSprint ?? {})
-          );
+        // Fetch carryover: issues in both this sprint and the previous, excluding Blocked
+        const carryoverPromise = prevSprintId
+          ? client.searchAllIssues(
+              `sprint = ${sprint.id} AND sprint = ${prevSprintId} AND project = "${projectKey}" AND issuetype in (Story, Task, "Service Ticket") AND status != Blocked AND ${EXCLUDE_MAINFRAME}`
+            )
+          : Promise.resolve(null);
 
-          let day1Points = 0;
-          let resolvedPoints = 0;
-          let lastDayPoints = 0;
+        // Fetch service desk/Splunk resolved tickets with time spent
+        const serviceDeskJql = `sprint = ${sprint.id} AND project = "${projectKey}" AND issuetype in ("[System] Incident", "[System] Problem", "[System] Service request") AND ${EXCLUDE_MAINFRAME}`;
+        const serviceDeskPromise = client.searchAllIssues(serviceDeskJql, ['timespent', 'status', 'summary']);
 
-          for (const issue of issuesResponse.issues) {
-            const { ticket } = mapToTicketAutoEpic(issue, fieldConfig);
+        const [issuesResponse, sprintReport, carryoverResponse, serviceDeskResponse] = await Promise.all([
+          client.searchAllIssues(jql),
+          client.getSprintReport(boardId, sprint.id),
+          carryoverPromise,
+          serviceDeskPromise,
+        ]);
 
-            if (isCanceledStatus(ticket.status)) continue;
+        const addedKeys = new Set(
+          Object.keys(sprintReport.contents.issueKeysAddedDuringSprint ?? {})
+        );
 
-            const points = computePoints(issue, ticket.key, fieldConfig);
+        let day1Points = 0;
+        let resolvedPoints = 0;
+        let lastDayPoints = 0;
+        let scopeChangePoints = 0;
+        const issues: SprintMetricsIssue[] = [];
 
-            // Last day = all non-canceled
-            lastDayPoints += points;
+        for (const issue of issuesResponse.issues) {
+          const { ticket } = mapToTicketAutoEpic(issue, fieldConfig);
 
-            // Day 1 = not added mid-sprint
-            if (!addedKeys.has(ticket.key)) {
-              day1Points += points;
-            }
+          if (isCanceledStatus(ticket.status)) continue;
 
-            // Resolved = in a done status
-            if (doneStatusSet.has(ticket.status.toLowerCase())) {
-              resolvedPoints += points;
-            }
+          const points = computePoints(issue, ticket.key, fieldConfig);
+          const categories: string[] = ['lastDay'];
+
+          // Last day = all non-canceled
+          lastDayPoints += points;
+
+          // Day 1 = not added mid-sprint
+          if (!addedKeys.has(ticket.key)) {
+            day1Points += points;
+            categories.push('day1');
+          } else {
+            // Scope change = points added after sprint start
+            scopeChangePoints += points;
+            categories.push('scopeChange');
           }
 
-          result.set(offset, {
-            projectKey,
+          // Resolved = in a done status
+          if (doneStatusSet.has(ticket.status.toLowerCase())) {
+            resolvedPoints += points;
+            categories.push('resolved');
+          }
+
+          issues.push({
+            key: ticket.key,
+            summary: ticket.summary,
             sprintName: sprint.name,
-            startDate: sprint.startDate,
-            endDate: sprint.endDate ?? '',
-            day1Points,
-            resolvedPoints,
-            lastDayPoints,
+            points,
+            categories,
           });
-        })
-      );
+        }
 
-      return result;
-    });
+        // Carryover = sum points of issues in both sprints (excluding Blocked + canceled)
+        let carryoverPoints = 0;
+        if (carryoverResponse) {
+          for (const issue of carryoverResponse.issues) {
+            const { ticket } = mapToTicketAutoEpic(issue, fieldConfig);
+            if (isCanceledStatus(ticket.status)) continue;
+            const pts = computePoints(issue, ticket.key, fieldConfig);
+            carryoverPoints += pts;
+            issues.push({
+              key: ticket.key,
+              summary: ticket.summary,
+              sprintName: sprint.name,
+              points: pts,
+              categories: ['carryover'],
+            });
+          }
+        }
 
-    const selectionResults = await Promise.all(selectionPromises);
+        // Service desk hours resolved = sum timespent (seconds → hours) for resolved SD tickets
+        let serviceDeskSecondsResolved = 0;
+        for (const issue of serviceDeskResponse.issues) {
+          const status = (issue.fields.status as { name: string })?.name ?? '';
+          if (isCanceledStatus(status)) continue;
+          if (!doneStatusSet.has(status.toLowerCase())) continue;
+          const timespent = issue.fields['timespent'];
+          if (typeof timespent === 'number' && timespent > 0) {
+            serviceDeskSecondsResolved += timespent;
+            const hours = Math.round((timespent / 3600) * 10) / 10;
+            const sdSummary = (issue.fields['summary'] as string) ?? issue.key;
+            issues.push({
+              key: issue.key,
+              summary: sdSummary,
+              sprintName: sprint.name,
+              points: hours,
+              categories: ['serviceDesk'],
+            });
+          }
+        }
+        const serviceDeskHoursResolved = Math.round((serviceDeskSecondsResolved / 3600) * 10) / 10;
+
+        result.set(offset, {
+          projectKey,
+          projectName: projectName ?? projectKey,
+          sprintName: sprint.name,
+          startDate: sprint.startDate,
+          endDate: sprint.endDate ?? '',
+          day1Points,
+          resolvedPoints,
+          lastDayPoints,
+          scopeChangePoints,
+          carryoverPoints,
+          serviceDeskHoursResolved,
+          issues,
+        });
+      }
+
+      selectionResults.push(result);
+    }
 
     // ── Assemble grids by offset ──────────────────────────────────────
+    // Every selected project gets a row in every grid, even if it has no
+    // sprint data at that offset (zeros are used as placeholders).
 
     const offsets = [0, ...Array.from({ length: sprintsBack }, (_, i) => -(i + 1))];
     const grids: SprintMetricsGrid[] = [];
@@ -216,9 +318,29 @@ export const POST = async (request: NextRequest) => {
     for (const offset of offsets) {
       const rows: SprintMetricsRow[] = [];
 
-      for (const selResult of selectionResults) {
+      for (let i = 0; i < selectionResults.length; i++) {
+        const selResult = selectionResults[i];
         const row = selResult.get(offset);
-        if (row) rows.push(row);
+        if (row) {
+          rows.push(row);
+        } else {
+          // Placeholder row with zeros for projects missing data at this offset
+          const sel = selections[i];
+          rows.push({
+            projectKey: sel.projectKey,
+            projectName: sel.projectName ?? sel.projectKey,
+            sprintName: '—',
+            startDate: '',
+            endDate: '',
+            day1Points: 0,
+            resolvedPoints: 0,
+            lastDayPoints: 0,
+            scopeChangePoints: 0,
+            carryoverPoints: 0,
+            serviceDeskHoursResolved: 0,
+            issues: [],
+          });
+        }
       }
 
       if (rows.length === 0) continue;
