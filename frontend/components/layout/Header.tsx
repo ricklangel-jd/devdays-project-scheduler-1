@@ -66,11 +66,12 @@ const NAV_MENUS = [
     ],
   },
   {
-    label: 'Metrics',
+    label: 'Status',
     items: [
       { label: 'Sprint Check', path: '/sprint-check' },
       { label: 'Time Spent', path: '/time-spent' },
       { label: 'Sprint Metrics', path: '/sprint-metrics' },
+      { label: 'PI Status', path: '/pi-status' },
     ],
   },
 ] as const;

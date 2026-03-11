@@ -23,7 +23,7 @@ interface PiPlanningChartProps {
 // Chart layout constants
 const CHART_HEIGHT = 500;
 const LEGEND_WIDTH = 240;
-const MARGIN = { top: 10, right: LEGEND_WIDTH + 20, bottom: 45, left: 55 };
+const MARGIN = { top: 10, right: LEGEND_WIDTH + 20, bottom: 50, left: 55 };
 const BAR_WIDTH = 100;
 const BAR_GAP = 10;
 const LEGEND_ROW_HEIGHT = 20;
@@ -288,17 +288,6 @@ const PiPlanningChart = ({ epics, piLabel, capacity }: PiPlanningChartProps) => 
             </text>
           )}
 
-          {/* Demand X-axis label */}
-          <text
-            x={demandBarX + BAR_WIDTH / 2}
-            y={chartHeight + 22}
-            textAnchor="middle"
-            fontSize={12}
-            fontWeight="bold"
-            fill="#333"
-          >
-            {showCapacity ? 'Demand' : piLabel}
-          </text>
 
           {/* Capacity bar */}
           {showCapacity && (
@@ -327,10 +316,27 @@ const PiPlanningChart = ({ epics, piLabel, capacity }: PiPlanningChartProps) => 
                 {capacity}
               </text>
 
-              {/* Capacity X-axis label */}
+
+            </>
+          )}
+
+          {/* X-axis labels — each under its own bar */}
+          <text
+            x={demandBarX + BAR_WIDTH / 2}
+            y={chartHeight + 18}
+            textAnchor="middle"
+            fontSize={12}
+            fontWeight="bold"
+            fill="#333"
+          >
+            {showCapacity ? 'Demand' : piLabel}
+          </text>
+
+          {showCapacity && (
+            <>
               <text
                 x={capacityBarX + BAR_WIDTH / 2}
-                y={chartHeight + 22}
+                y={chartHeight + 18}
                 textAnchor="middle"
                 fontSize={12}
                 fontWeight="bold"
@@ -339,33 +345,20 @@ const PiPlanningChart = ({ epics, piLabel, capacity }: PiPlanningChartProps) => 
                 Capacity
               </text>
 
-              {/* Over/under indicator between bars */}
+              {/* Over/under + PI label on second row, centered under cluster */}
               {overUnder !== null && totalPoints > 0 && (
                 <text
-                  x={demandBarX + BAR_WIDTH + BAR_GAP / 2}
-                  y={chartHeight + 38}
+                  x={clusterX + clusterWidth / 2}
+                  y={chartHeight + 36}
                   textAnchor="middle"
                   fontSize={11}
                   fontWeight="bold"
                   fill={overUnder > 0 ? '#d32f2f' : '#2e7d32'}
                 >
-                  {overUnder > 0 ? `+${overUnder} over` : overUnder < 0 ? `${Math.abs(overUnder)} under` : 'Balanced'}
+                  {piLabel} — {overUnder > 0 ? `+${overUnder} over` : overUnder < 0 ? `${Math.abs(overUnder)} under` : 'Balanced'}
                 </text>
               )}
             </>
-          )}
-
-          {/* PI label centered under cluster when capacity shown */}
-          {showCapacity && (
-            <text
-              x={clusterX + clusterWidth / 2}
-              y={chartHeight + 38}
-              textAnchor="middle"
-              fontSize={11}
-              fill="#666"
-            >
-              {piLabel}
-            </text>
           )}
 
           {/* Legend — right side of chart */}

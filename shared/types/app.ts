@@ -51,10 +51,14 @@ export const QUERY_PARAM_KEYS = {
   PP_SUPPORT_PCT: 'ppSup',
   PP_EXCLUDE_S7: 'ppNoS7',
   PP_DAYS_OFF: 'ppDaysOff',
+  PP_DAYS_REDUCE: 'ppDaysReduce',
+  PP_ENG_COUNT: 'ppEngCount',
   SM_SELECTIONS: 'smSel',
   SM_SPRINTS_BACK: 'smBack',
   SM_CAPACITIES: 'smCap',
   SM_ENGINEERS: 'smEng',
+  PS_PI: 'psPi',
+  PS_PI_SPRINTS: 'psSprints',
 } as const;
 
 /**

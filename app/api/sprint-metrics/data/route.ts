@@ -193,7 +193,8 @@ export const POST = async (request: NextRequest) => {
           : Promise.resolve(null);
 
         // Fetch service desk/Splunk resolved tickets with time spent
-        const serviceDeskJql = `sprint = ${sprint.id} AND project = "${projectKey}" AND issuetype in ("[System] Incident", "[System] Problem", "[System] Service request") AND ${EXCLUDE_MAINFRAME}`;
+        const serviceDeskJql = `sprint = ${sprint.id} AND project = "Hy-Vee Service Desk" AND issuetype in ("[System] Incident", "[System] Problem", "[System] Service request") AND ${EXCLUDE_MAINFRAME}`;
+
         const serviceDeskPromise = client.searchAllIssues(serviceDeskJql, ['timespent', 'status', 'summary']);
 
         const [issuesResponse, sprintReport, carryoverResponse, serviceDeskResponse] = await Promise.all([

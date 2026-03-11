@@ -21,10 +21,8 @@ import Chip from '@mui/material/Chip';
 import Fab from '@mui/material/Fab';
 import Tooltip from '@mui/material/Tooltip';
 import Link from '@mui/material/Link';
-import IconButton from '@mui/material/IconButton';
+import Divider from '@mui/material/Divider';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import AddIcon from '@mui/icons-material/Add';
-import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
 import { Header, Sidebar, MainContent } from '@/frontend/components';
 import { PiPlanningSidebarContent } from '@/frontend/components/sidebar';
 import { PiPlanningChart } from '@/frontend/components/chart';
@@ -38,46 +36,6 @@ const JIRA_BASE_URL = process.env.NEXT_PUBLIC_JIRA_BASE_URL || '';
 const SPRINT_COUNT = 7;
 const DAYS_PER_SPRINT = 10;
 
-/**
- * Encode engineers + daysOut map to URL-safe string.
- * Format: "Name:0,0,2,0,0,0,0|Name2:1,0,0,0,0,0,0"
- */
-const encodeDaysOffForUrl = (engineers: string[], daysOut: Map<string, number[]>): string => {
-  return engineers
-    .map((name) => {
-      const days = daysOut.get(name) ?? new Array(SPRINT_COUNT).fill(0);
-      return `${encodeURIComponent(name)}:${days.join(',')}`;
-    })
-    .join('|');
-};
-
-/**
- * Decode URL string back to engineers list + daysOut map.
- */
-const parseDaysOffFromUrl = (
-  encoded: string | null
-): { engineers: string[]; daysOut: Map<string, number[]> } | null => {
-  if (!encoded) return null;
-  const engineers: string[] = [];
-  const daysOut = new Map<string, number[]>();
-
-  const entries = encoded.split('|');
-  for (const entry of entries) {
-    const colonIdx = entry.indexOf(':');
-    if (colonIdx === -1) continue;
-    const name = decodeURIComponent(entry.substring(0, colonIdx));
-    const days = entry
-      .substring(colonIdx + 1)
-      .split(',')
-      .map((d) => parseInt(d, 10) || 0);
-    // Pad to SPRINT_COUNT
-    while (days.length < SPRINT_COUNT) days.push(0);
-    engineers.push(name);
-    daysOut.set(name, days.slice(0, SPRINT_COUNT));
-  }
-
-  return engineers.length > 0 ? { engineers, daysOut } : null;
-};
 
 interface ConnectionStatus {
   connected: boolean;
@@ -131,19 +89,18 @@ const PiPlanningContent = () => {
   const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('success');
 
   // Sorting state
-  const [sortColumn, setSortColumn] = useState<SortColumn>('key');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [sortColumn, setSortColumn] = useState<SortColumn>('checked');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
-  // Engineer capacity state — initialized from URL params when available
-  const [engineers, setEngineers] = useState<string[]>(() => {
-    const parsed = parseDaysOffFromUrl(searchParams.get(QUERY_PARAM_KEYS.PP_DAYS_OFF));
-    return parsed?.engineers ?? [];
+  // Engineer capacity state
+  const [engineerCount, setEngineerCountState] = useState<number>(() => {
+    const val = searchParams.get(QUERY_PARAM_KEYS.PP_ENG_COUNT);
+    return val !== null ? Math.max(0, parseInt(val, 10) || 0) : 0;
   });
-  const [daysOut, setDaysOut] = useState<Map<string, number[]>>(() => {
-    const parsed = parseDaysOffFromUrl(searchParams.get(QUERY_PARAM_KEYS.PP_DAYS_OFF));
-    return parsed?.daysOut ?? new Map();
+  const [daysToReduce, setDaysToReduceState] = useState<number>(() => {
+    const val = searchParams.get(QUERY_PARAM_KEYS.PP_DAYS_REDUCE);
+    return val !== null ? Math.max(0, parseInt(val, 10) || 0) : 0;
   });
-  const [newEngineerName, setNewEngineerName] = useState('');
   const [supportPercent, setSupportPercentState] = useState(() => {
     const val = searchParams.get(QUERY_PARAM_KEYS.PP_SUPPORT_PCT);
     return val !== null ? (parseInt(val, 10) || 10) : 10;
@@ -175,38 +132,40 @@ const PiPlanningContent = () => {
       prevProjectRef.current = projectKey;
       fetchEpics(projectKey);
 
-      // Check if URL already has days-off data (from a shared URL)
-      const urlDaysOff = searchParamsRef.current.get(QUERY_PARAM_KEYS.PP_DAYS_OFF);
-      const parsedDaysOff = parseDaysOffFromUrl(urlDaysOff);
-
-      if (parsedDaysOff) {
-        // Restore engineers + days-off from URL
-        setEngineers(parsedDaysOff.engineers);
-        setDaysOut(parsedDaysOff.daysOut);
-      } else {
-        // Fetch engineers from current sprint
-        const fetchEngineers = async () => {
-          try {
-            const params = new URLSearchParams({ project: projectKey });
-            if (boardId) params.set('boardId', boardId.toString());
-            const response = await fetch(`/api/pi-planning/engineers?${params.toString()}`);
-            const data = await response.json();
-            if (response.ok && data.engineers) {
-              const names: string[] = data.engineers;
-              setEngineers(names);
-              // Initialize daysOut with zeros for each engineer
-              const newDaysOut = new Map<string, number[]>();
-              for (const name of names) {
-                newDaysOut.set(name, new Array(SPRINT_COUNT).fill(0));
-              }
-              setDaysOut(newDaysOut);
+      // Fetch engineer count from current sprint assignees
+      const fetchEngineers = async () => {
+        try {
+          const params = new URLSearchParams({ project: projectKey });
+          if (boardId) params.set('boardId', boardId.toString());
+          const response = await fetch(`/api/pi-planning/engineers?${params.toString()}`);
+          const data = await response.json();
+          if (response.ok && data.engineers) {
+            // Count minus 1 to exclude tech lead
+            const count = Math.max(0, (data.engineers as string[]).length - 1);
+            setEngineerCountState(count);
+            // Sync to URL
+            const p = new URLSearchParams(searchParamsRef.current.toString());
+            if (count > 0) {
+              p.set(QUERY_PARAM_KEYS.PP_ENG_COUNT, count.toString());
+            } else {
+              p.delete(QUERY_PARAM_KEYS.PP_ENG_COUNT);
             }
-          } catch (err) {
-            console.error('Failed to fetch engineers:', err);
+            // Default days to reduce = 5 per engineer (if not already set in URL)
+            if (!searchParamsRef.current.get(QUERY_PARAM_KEYS.PP_DAYS_REDUCE)) {
+              const defaultDaysReduce = count * 5;
+              setDaysToReduceState(defaultDaysReduce);
+              if (defaultDaysReduce > 0) {
+                p.set(QUERY_PARAM_KEYS.PP_DAYS_REDUCE, defaultDaysReduce.toString());
+              }
+            }
+            const q = p.toString();
+            router.replace(q ? `/pi-planning?${q}` : '/pi-planning', { scroll: false });
           }
-        };
-        fetchEngineers();
-      }
+        } catch (err) {
+          console.error('Failed to fetch engineers:', err);
+        }
+      };
+      fetchEngineers();
     }
     if (!projectKey) {
       prevProjectRef.current = undefined;
@@ -289,24 +248,6 @@ const PiPlanningContent = () => {
     router.replace(qs ? `/pi-planning?${qs}` : '/pi-planning', { scroll: false });
   }, [router]);
 
-  // Sync engineers + daysOut to URL whenever they change
-  const isInitialDaysOutSync = useRef(true);
-  useEffect(() => {
-    // Skip the very first sync to avoid overwriting URL data we just parsed
-    if (isInitialDaysOutSync.current) {
-      isInitialDaysOutSync.current = false;
-      return;
-    }
-    const params = new URLSearchParams(searchParamsRef.current.toString());
-    if (engineers.length > 0) {
-      params.set(QUERY_PARAM_KEYS.PP_DAYS_OFF, encodeDaysOffForUrl(engineers, daysOut));
-    } else {
-      params.delete(QUERY_PARAM_KEYS.PP_DAYS_OFF);
-    }
-    const qs = params.toString();
-    router.replace(qs ? `/pi-planning?${qs}` : '/pi-planning', { scroll: false });
-  }, [engineers, daysOut, router]);
-
   // Handlers for table interactions
   const handleCheckChange = useCallback((epicKey: string, checked: boolean) => {
     setCheckedEpics((prev) => {
@@ -333,38 +274,33 @@ const PiPlanningContent = () => {
     });
   }, []);
 
-  // Engineer capacity handlers
-  const handleDaysOutChange = useCallback((engineer: string, sprintIdx: number, value: string) => {
-    const num = value === '' ? 0 : Math.max(0, Math.min(DAYS_PER_SPRINT, parseInt(value, 10) || 0));
-    setDaysOut((prev) => {
-      const next = new Map(prev);
-      const sprints = [...(next.get(engineer) ?? new Array(SPRINT_COUNT).fill(0))];
-      sprints[sprintIdx] = num;
-      next.set(engineer, sprints);
-      return next;
-    });
-  }, []);
+  // Engineer count handler (URL-synced)
+  const handleEngineerCountChange = useCallback((value: number) => {
+    const clamped = Math.max(0, value);
+    setEngineerCountState(clamped);
+    const params = new URLSearchParams(searchParamsRef.current.toString());
+    if (clamped > 0) {
+      params.set(QUERY_PARAM_KEYS.PP_ENG_COUNT, clamped.toString());
+    } else {
+      params.delete(QUERY_PARAM_KEYS.PP_ENG_COUNT);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `/pi-planning?${qs}` : '/pi-planning', { scroll: false });
+  }, [router]);
 
-  const handleAddEngineer = useCallback(() => {
-    const name = newEngineerName.trim();
-    if (!name || engineers.includes(name)) return;
-    setEngineers((prev) => [...prev, name]);
-    setDaysOut((prev) => {
-      const next = new Map(prev);
-      next.set(name, new Array(SPRINT_COUNT).fill(0));
-      return next;
-    });
-    setNewEngineerName('');
-  }, [newEngineerName, engineers]);
-
-  const handleRemoveEngineer = useCallback((name: string) => {
-    setEngineers((prev) => prev.filter((n) => n !== name));
-    setDaysOut((prev) => {
-      const next = new Map(prev);
-      next.delete(name);
-      return next;
-    });
-  }, []);
+  // Days-to-reduce handler (URL-synced)
+  const handleDaysToReduceChange = useCallback((value: number) => {
+    const clamped = Math.max(0, value);
+    setDaysToReduceState(clamped);
+    const params = new URLSearchParams(searchParamsRef.current.toString());
+    if (clamped > 0) {
+      params.set(QUERY_PARAM_KEYS.PP_DAYS_REDUCE, clamped.toString());
+    } else {
+      params.delete(QUERY_PARAM_KEYS.PP_DAYS_REDUCE);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `/pi-planning?${qs}` : '/pi-planning', { scroll: false });
+  }, [router]);
 
   // Sort handler
   const handleSort = useCallback((column: SortColumn) => {
@@ -430,19 +366,14 @@ const PiPlanningContent = () => {
     return { checkedCount: count, totalPoints: points };
   }, [checkedEpics, pointsEntries]);
 
-  // Compute total capacity from engineer grid, reduced by support percent
+  // Compute total capacity: (engineers * sprints * daysPerSprint - daysToReduce) * supportMultiplier
   const supportMultiplier = 1 - supportPercent / 100;
   const activeSprints = excludeSprint7 ? SPRINT_COUNT - 1 : SPRINT_COUNT;
 
   const totalCapacity = useMemo(() => {
-    let total = 0;
-    for (const sprints of daysOut.values()) {
-      for (let i = 0; i < activeSprints; i++) {
-        total += DAYS_PER_SPRINT - (sprints[i] ?? 0);
-      }
-    }
-    return Math.round(total * supportMultiplier);
-  }, [daysOut, supportMultiplier, activeSprints]);
+    const totalDays = engineerCount * activeSprints * DAYS_PER_SPRINT - daysToReduce;
+    return Math.round(Math.max(0, totalDays) * supportMultiplier);
+  }, [engineerCount, activeSprints, daysToReduce, supportMultiplier]);
 
   // Build chart data — only checked epics
   const chartEpics: PiPlanningEpicBar[] = useMemo(() => {
@@ -540,11 +471,12 @@ const PiPlanningContent = () => {
 
   // Compact cell style shared across both tables
   const compactCell = { fontSize: '0.75rem', py: 0.25, px: 0.5 } as const;
+  const compactHeaderCell = { ...compactCell, fontWeight: 700, whiteSpace: 'nowrap' as const, bgcolor: 'grey.100' };
 
   // Sortable column header helper
   const SortHeader = ({ column, label, align }: { column: SortColumn; label: string; align?: 'left' | 'right' | 'center' }) => (
     <TableCell
-      sx={{ fontWeight: 'bold', ...compactCell }}
+      sx={compactHeaderCell}
       align={align}
       sortDirection={sortColumn === column ? sortDirection : false}
     >
@@ -552,7 +484,7 @@ const PiPlanningContent = () => {
         active={sortColumn === column}
         direction={sortColumn === column ? sortDirection : 'asc'}
         onClick={() => handleSort(column)}
-        sx={{ fontSize: '0.75rem' }}
+        sx={{ fontSize: 'inherit', '& .MuiTableSortLabel-icon': { fontSize: '0.875rem' } }}
       >
         {label}
       </TableSortLabel>
@@ -604,204 +536,135 @@ const PiPlanningContent = () => {
             </Alert>
           )}
           {epics.length > 0 && selectedPi ? (
-            <Box sx={{ display: 'flex', height: '100%', overflow: 'hidden', gap: 1, p: 1 }}>
-              {/* Left side — tables stacked vertically */}
-              <Box sx={{ flex: '1 1 60%', minWidth: 0, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Box sx={{ display: 'flex', height: '100%', overflow: 'hidden', gap: 1.5, p: 1.5 }}>
+              {/* Left side — capacity bar + epics table */}
+              <Box sx={{ flex: '1 1 60%', minWidth: 0, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 1.5 }}>
 
-                {/* Engineer Capacity Grid */}
-                <TableContainer component={Paper} sx={{ flexShrink: 0 }}>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 'bold', ...compactCell, minWidth: 120 }}>Engineer</TableCell>
-                        {Array.from({ length: SPRINT_COUNT }, (_, i) => (
-                          <TableCell
-                            key={i}
-                            align="center"
-                            sx={{
-                              fontWeight: 'bold',
-                              ...compactCell,
-                              minWidth: 50,
-                              ...(excludeSprint7 && i === SPRINT_COUNT - 1 ? { opacity: 0.3 } : {}),
-                            }}
-                          >
-                            S{i + 1}
-                          </TableCell>
-                        ))}
-                        <TableCell align="right" sx={{ fontWeight: 'bold', ...compactCell, minWidth: 70 }}>
-                          Capacity
-                        </TableCell>
-                        <TableCell sx={{ width: 32, ...compactCell }} />
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {engineers.map((name) => {
-                        const sprints = daysOut.get(name) ?? new Array(SPRINT_COUNT).fill(0);
-                        const engineerCapacity = sprints.reduce(
-                          (sum, out, idx) => idx < activeSprints ? sum + (DAYS_PER_SPRINT - out) : sum,
-                          0
-                        );
+                {/* Capacity Summary Bar */}
+                <Paper elevation={1} sx={{ flexShrink: 0, overflow: 'hidden' }}>
+                  <Box sx={{ px: 2, py: 1, borderLeft: 3, borderColor: 'primary.main' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                      <TextField
+                        label="Engineers (excl TL)"
+                        type="number"
+                        size="small"
+                        value={engineerCount || ''}
+                        onChange={(e) => handleEngineerCountChange(parseInt(e.target.value, 10) || 0)}
+                        slotProps={{ htmlInput: { min: 0, style: { textAlign: 'right', fontSize: '0.8rem', padding: '4px 8px' } } }}
+                        sx={{ width: 140 }}
+                        placeholder="0"
+                      />
 
-                        return (
-                          <TableRow key={name} hover>
-                            <TableCell sx={compactCell}>
-                              <Typography sx={{ fontSize: '0.75rem', fontWeight: 500 }} noWrap>
-                                {name}
-                              </Typography>
-                            </TableCell>
-                            {sprints.map((val, sprintIdx) => {
-                              const isExcluded = excludeSprint7 && sprintIdx === SPRINT_COUNT - 1;
-                              return (
-                                <TableCell key={sprintIdx} align="center" sx={{ ...compactCell, p: 0.25, ...(isExcluded ? { opacity: 0.3 } : {}) }}>
-                                  <TextField
-                                    type="number"
-                                    size="small"
-                                    value={val || ''}
-                                    onChange={(e) => handleDaysOutChange(name, sprintIdx, e.target.value)}
-                                    disabled={isExcluded}
-                                    inputProps={{ min: 0, max: DAYS_PER_SPRINT, style: { textAlign: 'center', fontSize: '0.75rem', padding: '2px 4px' } }}
-                                    sx={{ width: 44 }}
-                                    placeholder="0"
-                                  />
-                                </TableCell>
-                              );
-                            })}
-                            <TableCell align="right" sx={compactCell}>
-                              <Typography sx={{ fontSize: '0.75rem', fontWeight: 'bold' }}>
-                                {engineerCapacity}
-                              </Typography>
-                            </TableCell>
-                            <TableCell sx={{ p: 0 }}>
-                              <IconButton
-                                size="small"
-                                onClick={() => handleRemoveEngineer(name)}
-                                color="error"
-                                sx={{ p: 0.25 }}
-                              >
-                                <RemoveCircleOutlineIcon sx={{ fontSize: '1rem' }} />
-                              </IconButton>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
+                      <Divider orientation="vertical" flexItem />
 
-                      {/* Add engineer row */}
-                      <TableRow>
-                        <TableCell colSpan={SPRINT_COUNT + 1} sx={{ ...compactCell, p: 0.25 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <TextField
-                              size="small"
-                              value={newEngineerName}
-                              onChange={(e) => setNewEngineerName(e.target.value)}
-                              placeholder="Add engineer..."
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleAddEngineer();
-                              }}
-                              inputProps={{ style: { fontSize: '0.75rem', padding: '2px 6px' } }}
-                              sx={{ width: 160 }}
-                            />
-                            <IconButton
-                              size="small"
-                              onClick={handleAddEngineer}
-                              disabled={!newEngineerName.trim()}
-                              color="primary"
-                              sx={{ p: 0.25 }}
-                            >
-                              <AddIcon sx={{ fontSize: '1rem' }} />
-                            </IconButton>
-                          </Box>
-                        </TableCell>
-                        <TableCell align="right" sx={compactCell}>
-                          <Typography sx={{ fontSize: '0.75rem', fontWeight: 'bold' }} color="primary">
-                            {totalCapacity}
-                          </Typography>
-                        </TableCell>
-                        <TableCell sx={compactCell} />
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+                      <TextField
+                        label="Days to Reduce"
+                        type="number"
+                        size="small"
+                        value={daysToReduce || ''}
+                        onChange={(e) => handleDaysToReduceChange(parseInt(e.target.value, 10) || 0)}
+                        slotProps={{ htmlInput: { min: 0, style: { textAlign: 'right', fontSize: '0.8rem', padding: '4px 8px' } } }}
+                        sx={{ width: 130 }}
+                        placeholder="0"
+                      />
+
+                      <Divider orientation="vertical" flexItem />
+
+                      <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.4 }}>
+                        {engineerCount} eng × {activeSprints} sprints × {DAYS_PER_SPRINT} days
+                        {daysToReduce > 0 ? ` − ${daysToReduce}` : ''}
+                        {` × ${Math.round(supportMultiplier * 100)}%`}
+                      </Typography>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700, ml: 'auto' }} color="primary">
+                        Capacity: {totalCapacity} pts
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Paper>
 
                 {/* Epics Table */}
-                <TableContainer component={Paper} sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-                  <Table stickyHeader size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell
-                          padding="checkbox"
-                          sortDirection={sortColumn === 'checked' ? sortDirection : false}
-                          sx={compactCell}
-                        >
-                          <TableSortLabel
-                            active={sortColumn === 'checked'}
-                            direction={sortColumn === 'checked' ? sortDirection : 'asc'}
-                            onClick={() => handleSort('checked')}
-                          />
-                        </TableCell>
-                        <SortHeader column="key" label="Key" />
-                        <SortHeader column="summary" label="Summary" />
-                        <SortHeader column="status" label="Status" />
-                        <SortHeader column="childPoints" label="Child Points" align="right" />
-                        <SortHeader column="piPoints" label="PI Points" align="right" />
-                        <SortHeader column="stretch" label="Stretch" align="center" />
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {sortedEpics.map((epic) => {
-                        const isChecked = checkedEpics.get(epic.key) ?? false;
-                        const isStretch = stretchFlags.get(epic.key) ?? false;
-                        const points = pointsEntries.get(epic.key);
+                <Paper elevation={1} sx={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  <Typography variant="subtitle2" sx={{ px: 1.5, pt: 1, pb: 0.5, fontWeight: 700, borderLeft: 3, borderColor: 'primary.main', flexShrink: 0 }}>
+                    Epics ({epics.length})
+                  </Typography>
+                  <TableContainer sx={{ flex: 1, minHeight: 0 }}>
+                    <Table stickyHeader size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell
+                            padding="checkbox"
+                            sortDirection={sortColumn === 'checked' ? sortDirection : false}
+                            sx={compactHeaderCell}
+                          >
+                            <TableSortLabel
+                              active={sortColumn === 'checked'}
+                              direction={sortColumn === 'checked' ? sortDirection : 'asc'}
+                              onClick={() => handleSort('checked')}
+                              sx={{ '& .MuiTableSortLabel-icon': { fontSize: '0.875rem' } }}
+                            />
+                          </TableCell>
+                          <SortHeader column="key" label="Key" />
+                          <SortHeader column="summary" label="Summary" />
+                          <SortHeader column="status" label="Status" />
+                          <SortHeader column="childPoints" label="Child Points" align="right" />
+                          <SortHeader column="piPoints" label="PI Points" align="right" />
+                          <SortHeader column="stretch" label="Stretch" align="center" />
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {sortedEpics.map((epic, idx) => {
+                          const isChecked = checkedEpics.get(epic.key) ?? false;
+                          const isStretch = stretchFlags.get(epic.key) ?? false;
+                          const points = pointsEntries.get(epic.key);
 
-                        return (
-                          <EpicRow
-                            key={epic.key}
-                            epic={epic}
-                            isChecked={isChecked}
-                            isStretch={isStretch}
-                            points={points ?? null}
-                            getStatusColor={getStatusColor}
-                            onCheckChange={handleCheckChange}
-                            onStretchChange={handleStretchChange}
-                            onPointsChange={handlePointsChange}
-                          />
-                        );
-                      })}
-                      {/* Running total row */}
-                      <TableRow sx={{ bgcolor: 'action.hover' }}>
-                        <TableCell sx={compactCell} />
-                        <TableCell colSpan={3} sx={compactCell}>
-                          <Typography sx={{ fontSize: '0.75rem', fontWeight: 'bold' }}>
+                          return (
+                            <EpicRow
+                              key={epic.key}
+                              epic={epic}
+                              isChecked={isChecked}
+                              isStretch={isStretch}
+                              points={points ?? null}
+                              even={idx % 2 === 1}
+                              getStatusColor={getStatusColor}
+                              onCheckChange={handleCheckChange}
+                              onStretchChange={handleStretchChange}
+                              onPointsChange={handlePointsChange}
+                            />
+                          );
+                        })}
+                        {/* Running total row */}
+                        <TableRow sx={{ '& td': { fontWeight: 700 }, bgcolor: 'grey.100', borderTop: 2, borderColor: 'divider' }}>
+                          <TableCell sx={compactCell} />
+                          <TableCell colSpan={3} sx={compactCell}>
                             Total ({checkedCount} epics)
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right" sx={compactCell}>
-                          <Typography sx={{ fontSize: '0.75rem', fontWeight: 'bold' }}>
+                          </TableCell>
+                          <TableCell align="right" sx={compactCell}>
                             {epics.reduce((sum, e) => {
                               const isChecked = checkedEpics.get(e.key) ?? false;
                               return isChecked ? sum + e.childStoryPoints : sum;
                             }, 0)}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right" sx={compactCell}>
-                          <Typography sx={{ fontSize: '0.75rem', fontWeight: 'bold' }} color="primary">
-                            {totalPoints}
-                          </Typography>
-                        </TableCell>
-                        <TableCell sx={compactCell} />
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+                          </TableCell>
+                          <TableCell align="right" sx={compactCell}>
+                            <Box component="span" sx={{ color: totalPoints > totalCapacity ? 'error.main' : 'success.main' }}>
+                              {totalPoints}
+                            </Box>
+                          </TableCell>
+                          <TableCell sx={compactCell} />
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Paper>
               </Box>
 
               {/* Chart — right side */}
-              <Box sx={{ flex: '0 0 40%', minWidth: 350, overflow: 'auto' }}>
+              <Paper elevation={1} sx={{ flex: '0 0 40%', minWidth: 350, overflow: 'auto', p: 1 }}>
                 <PiPlanningChart
                   epics={chartEpics}
                   piLabel={selectedPi}
                   capacity={totalCapacity}
                 />
-              </Box>
+              </Paper>
             </Box>
           ) : (
             <Box
@@ -886,6 +749,7 @@ interface EpicRowProps {
   isChecked: boolean;
   isStretch: boolean;
   points: number | null;
+  even: boolean;
   getStatusColor: (status: string) => 'default' | 'primary' | 'success' | 'warning' | 'info';
   onCheckChange: (key: string, checked: boolean) => void;
   onStretchChange: (key: string, isStretch: boolean) => void;
@@ -899,6 +763,7 @@ const EpicRow = ({
   isChecked,
   isStretch,
   points,
+  even,
   getStatusColor,
   onCheckChange,
   onStretchChange,
@@ -907,8 +772,10 @@ const EpicRow = ({
   <TableRow
     hover
     sx={{
-      opacity: isChecked ? 1 : 0.6,
-      bgcolor: isChecked ? 'action.selected' : undefined,
+      opacity: isChecked ? 1 : 0.5,
+      ...(isChecked
+        ? { bgcolor: 'action.selected' }
+        : even ? { bgcolor: 'grey.50' } : {}),
     }}
   >
     <TableCell padding="checkbox" sx={compactCellSx}>
@@ -925,7 +792,8 @@ const EpicRow = ({
           href={`${JIRA_BASE_URL}/browse/${epic.key}`}
           target="_blank"
           rel="noopener noreferrer"
-          sx={{ fontSize: '0.75rem', fontWeight: 500, fontFamily: 'monospace' }}
+          underline="hover"
+          sx={{ fontSize: '0.75rem', fontWeight: 500, fontFamily: 'monospace', color: 'primary.main' }}
         >
           {epic.key}
         </Link>
