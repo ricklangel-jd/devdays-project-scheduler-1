@@ -28,12 +28,13 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { Header } from '@/frontend/components';
 import { useAppState } from '@/frontend/hooks';
 import { QUERY_PARAM_KEYS } from '@/shared/types';
+import type { PiStatusStory, EpicStatusData } from '@/app/api/pi-status/data/route';
 
 // ── Constants ────────────────────────────────────────────────────────
 
 const JIRA_BASE_URL = process.env.NEXT_PUBLIC_JIRA_BASE_URL || '';
 
-// PI options: PI1_2025 through PI4_2027
+// PI options: PI1_2025 through PI4_2027 (extend upper year as needed)
 const PI_OPTIONS = (() => {
   const options: string[] = [];
   for (let year = 2025; year <= 2027; year++) {
@@ -45,26 +46,6 @@ const PI_OPTIONS = (() => {
 })();
 
 // ── Types ────────────────────────────────────────────────────────────
-
-interface PiStatusStory {
-  key: string;
-  summary: string;
-  points: number | null;
-  status: string;
-}
-
-interface EpicStatusData {
-  key: string;
-  summary: string;
-  status: string;
-  resolvedPercent: number;
-  totalStories: number;
-  resolvedStories: number;
-  totalPoints: number;
-  resolvedPoints: number;
-  stories: PiStatusStory[];
-  statusBreakdown: Record<string, number>;
-}
 
 interface PiStatusData {
   committed: EpicStatusData[];
@@ -142,7 +123,8 @@ const STATUS_COLORS: Record<string, string> = {
 const getStatusColor = (status: string): string =>
   STATUS_COLORS[status] ?? '#bdbdbd';
 
-/** Get a canonical order index for a status (lower = closer to left in bar) */
+/** Get a canonical order index for a status (lower = closer to left in bar).
+ *  Unknown statuses all map to the same tail position; add to STATUS_ORDER to fix ordering. */
 const getStatusOrder = (status: string): number => {
   const idx = STATUS_ORDER.indexOf(status);
   return idx >= 0 ? idx : STATUS_ORDER.length;
@@ -168,7 +150,7 @@ const StackedBarChart = ({ epics, title }: { epics: EpicStatusData[]; title: str
   const sortedStatuses = [...allStatuses].sort((a, b) => getStatusOrder(a) - getStatusOrder(b));
 
   // Find the max total points across epics to scale bars
-  const maxPoints = Math.max(...epics.map((e) => e.totalPoints), 1);
+  const maxPoints = Math.max(epics.reduce((m, e) => Math.max(m, e.totalPoints), 0), 1);
 
   // Totals across all epics
   const grandTotalPoints = epics.reduce((sum, e) => sum + e.totalPoints, 0);
