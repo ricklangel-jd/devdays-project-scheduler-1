@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getJiraClient, mapToTicketAutoEpic, mapToSprints } from '@/backend/jira';
+import { getJiraClient, EXCLUDE_MAINFRAME, mapToTicketAutoEpic, mapToSprints } from '@/backend/jira';
 import type { FieldConfig } from '@/backend/jira/mappers';
 import type { JiraIssueResponse } from '@/shared/types';
 
@@ -49,6 +49,13 @@ interface TicketDetail {
   sprintName: string;
 }
 
+interface SupportTicket {
+  key: string;
+  summary: string;
+  status: string;
+  sprintName: string;
+}
+
 interface SprintCheckResponse {
   sprints: SprintInfo[];
   engineers: string[];
@@ -60,6 +67,7 @@ interface SprintCheckResponse {
     engineers: CurrentSprintEngineer[];
     totalPoints: number;
   } | null;
+  supportTickets: SupportTicket[];
 }
 
 /**
@@ -68,6 +76,11 @@ interface SprintCheckResponse {
 const isCanceledStatus = (status: string): boolean => {
   const lower = status.toLowerCase();
   return lower === 'canceled' || lower === 'cancelled';
+};
+
+const isResolvedStatus = (status: string): boolean => {
+  const lower = status.toLowerCase();
+  return lower === 'resolved' || lower === 'done' || lower === 'closed';
 };
 
 /**
@@ -119,11 +132,13 @@ export const POST = async (request: NextRequest) => {
     const client = getJiraClient();
     const fieldConfig = buildFieldConfig(client);
 
-    // Fetch sprint details and tickets in parallel
-    const [sprintDetails, ticketsResponse, activeSprintsRaw] = await Promise.all([
+    // Fetch sprint details, tickets, and SD tickets in parallel
+    const sdJql = `sprint in (${sprintIds.join(',')}) AND project = "Hy-Vee Service Desk" AND issuetype in ("[System] Incident", "[System] Problem", "[System] Service request") AND ${EXCLUDE_MAINFRAME}`;
+    const [sprintDetails, ticketsResponse, activeSprintsRaw, sdResponse] = await Promise.all([
       client.getSprintsByIds(sprintIds),
       client.getSprintTickets(sprintIds),
       client.getSprints('active', boardId),
+      client.searchAllIssues(sdJql, ['summary', 'status', fieldConfig.sprint]),
     ]);
 
     console.log(`[Sprint Check] Fetched ${sprintDetails.length} sprints, ${ticketsResponse.issues.length} tickets`);
@@ -243,12 +258,36 @@ export const POST = async (request: NextRequest) => {
       };
     }
 
+    // ── Support desk open tickets ─────────────────────────────────────
+    // Collect open (non-resolved, non-canceled) SD tickets across all selected sprints
+    const supportTickets: SupportTicket[] = [];
+    for (const issue of sdResponse.issues) {
+      const status = (issue.fields.status as { name: string })?.name ?? 'Unknown';
+      if (isCanceledStatus(status) || isResolvedStatus(status)) continue;
+
+      const summary = (issue.fields.summary as string) ?? issue.key;
+
+      // Determine which selected sprint(s) this ticket belongs to and use the first match
+      const rawSprints = issue.fields[fieldConfig.sprint];
+      const ticketSprintIds: number[] = Array.isArray(rawSprints)
+        ? (rawSprints as { id: number }[]).map((s) => s.id)
+        : rawSprints && typeof rawSprints === 'object' && 'id' in rawSprints
+          ? [(rawSprints as { id: number }).id]
+          : [];
+
+      const matchedSprintId = ticketSprintIds.find((sid) => selectedSprintIdSet.has(sid));
+      const sprintName = matchedSprintId ? (sprintNameMap.get(matchedSprintId) ?? `Sprint ${matchedSprintId}`) : 'Unknown Sprint';
+
+      supportTickets.push({ key: issue.key, summary, status, sprintName });
+    }
+
     const response: SprintCheckResponse = {
       sprints: sprints.map((s) => ({ id: s.id, name: s.name, startDate: s.startDate })),
       engineers,
       sprintData,
       tickets,
       currentSprint,
+      supportTickets,
     };
 
     return NextResponse.json(response);

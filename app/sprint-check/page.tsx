@@ -11,7 +11,7 @@ import Tooltip from '@mui/material/Tooltip';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { Header, Sidebar, MainContent } from '@/frontend/components';
 import { SprintCheckSidebarContent } from '@/frontend/components/sidebar';
-import { SprintCheckLineChart, SprintCheckCurrentSprint } from '@/frontend/components/chart';
+import { SprintCheckLineChart, SprintCheckCurrentSprint, SupportTicketPanel } from '@/frontend/components/chart';
 import { useAppState } from '@/frontend/hooks';
 import { useSprintCheckData } from '@/frontend/hooks/useSprintCheckData';
 import { QUERY_PARAM_KEYS } from '@/shared/types';
@@ -239,6 +239,12 @@ const SprintCheckContent = () => {
           )}
           {data ? (
             <Box sx={{ overflow: 'auto', height: '100%', p: 1 }}>
+              <SprintCheckCurrentSprint
+                currentSprint={data.currentSprint}
+                tickets={data.tickets}
+                highlightedEngineer={highlightedEngineer}
+                onEngineerHighlight={handleEngineerHighlight}
+              />
               <SprintCheckLineChart
                 data={data}
                 selectedEngineers={selectedEngineers}
@@ -247,12 +253,7 @@ const SprintCheckContent = () => {
                 onEngineerHighlight={handleEngineerHighlight}
                 onDataPointClick={handleDataPointClick}
               />
-              <SprintCheckCurrentSprint
-                currentSprint={data.currentSprint}
-                tickets={data.tickets}
-                highlightedEngineer={highlightedEngineer}
-                onEngineerHighlight={handleEngineerHighlight}
-              />
+              <SupportTicketPanel tickets={data.supportTickets ?? []} />
             </Box>
           ) : (
             <Box

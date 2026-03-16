@@ -30,6 +30,13 @@ export interface TicketDetail {
   sprintName: string;
 }
 
+export interface SupportTicket {
+  key: string;
+  summary: string;
+  status: string;
+  sprintName: string;
+}
+
 export interface SprintCheckData {
   sprints: SprintInfo[];
   engineers: string[];
@@ -41,6 +48,7 @@ export interface SprintCheckData {
     engineers: CurrentSprintEngineer[];
     totalPoints: number;
   } | null;
+  supportTickets: SupportTicket[];
 }
 
 interface CachedData {
