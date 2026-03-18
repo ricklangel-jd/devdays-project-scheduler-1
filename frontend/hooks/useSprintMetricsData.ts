@@ -25,6 +25,8 @@ export interface SprintMetricsRow {
   carryoverPoints: number;
   serviceDeskHoursResolved: number;
   issues: SprintMetricsIssue[];
+  jiraCapacity: number | null;
+  jiraEngineerCount: number | null;
 }
 
 export interface SprintMetricsGrid {

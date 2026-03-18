@@ -88,9 +88,6 @@ const AllWorkContent = () => {
     searchParamsRef.current = searchParams;
   });
 
-  useEffect(() => {
-    document.title = 'All Work';
-  }, []);
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     connected: false,

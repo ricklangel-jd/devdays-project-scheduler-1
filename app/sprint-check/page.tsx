@@ -31,9 +31,6 @@ const SprintCheckContent = () => {
     searchParamsRef.current = searchParams;
   });
 
-  useEffect(() => {
-    document.title = 'Sprint Check';
-  }, []);
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     connected: false,

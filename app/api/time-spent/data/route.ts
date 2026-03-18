@@ -174,14 +174,24 @@ export const POST = async (request: NextRequest) => {
 
     // Step 5: Collect story details and sum points from sprint tickets grouped by epic
     // Only count non-canceled tickets that belong to non-canceled epics in our project
+    // Exclude any story with "Mainframe" as a label — and exclude its parent epic entirely
     const epicStoriesMap = new Map<string, StoryInfo[]>();
     const epicPointsMap = new Map<string, number>();
+    const mainframeEpicKeys = new Set<string>();
+
     for (const issue of ticketsResponse.issues) {
       // Skip canceled tickets
       if (isCanceledStatus(issue.fields.status.name)) continue;
 
       const epicKey = extractEpicKey(issue, fieldConfig);
       if (!epicKey || !epicMap.has(epicKey)) continue;
+
+      // If the story has a Mainframe label, mark the whole epic for exclusion
+      const labels: string[] = (issue.fields.labels as string[]) ?? [];
+      if (labels.some((l) => l.toLowerCase() === 'mainframe')) {
+        mainframeEpicKeys.add(epicKey);
+        continue;
+      }
 
       const points = computePoints(issue, issue.key, fieldConfig);
       epicPointsMap.set(epicKey, (epicPointsMap.get(epicKey) ?? 0) + points);
@@ -194,6 +204,13 @@ export const POST = async (request: NextRequest) => {
         summary: issue.fields.summary,
         points,
       });
+    }
+
+    // Remove epics that contained any Mainframe-labeled story
+    for (const epicKey of mainframeEpicKeys) {
+      epicMap.delete(epicKey);
+      epicStoriesMap.delete(epicKey);
+      epicPointsMap.delete(epicKey);
     }
 
     // Step 6: Group epics by initiative

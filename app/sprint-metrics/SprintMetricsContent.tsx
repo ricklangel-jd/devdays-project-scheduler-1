@@ -601,7 +601,7 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
     switch (field) {
       case 'projectKey': return row.projectName;
       case 'sprintName': return row.sprintName;
-      case 'capacity': return getCapacity(row.projectKey);
+      case 'capacity': return row.jiraCapacity ?? getCapacity(row.projectKey);
       case 'day1Points': return row.day1Points;
       case 'resolvedPoints': return row.resolvedPoints;
       case 'lastDayPoints': return row.lastDayPoints;
@@ -612,7 +612,7 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
         const vel = velocityMap.get(row.projectKey) ?? 0;
         return vel === 0 ? -Infinity : ((row.resolvedPoints - vel) / vel) * 100;
       }
-      case 'engineerCount': return getEngineerCount(row.projectKey);
+      case 'engineerCount': return row.jiraEngineerCount ?? getEngineerCount(row.projectKey);
       case 'completedVsPlanned': return row.day1Points === 0 ? -Infinity : (row.resolvedPoints / row.day1Points) * 100;
       case 'serviceDeskHours': return row.serviceDeskHoursResolved;
       default: return 0;
@@ -646,14 +646,14 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
     let serviceDeskHours = 0;
 
     for (const row of grid.rows) {
-      capacity += getCapacity(row.projectKey);
+      capacity += row.jiraCapacity ?? getCapacity(row.projectKey);
       day1 += row.day1Points;
       resolved += row.resolvedPoints;
       lastDay += row.lastDayPoints;
       scopeChange += row.scopeChangePoints;
       carryover += row.carryoverPoints;
       velocitySum += velocityMap.get(row.projectKey) ?? 0;
-      engineers += getEngineerCount(row.projectKey);
+      engineers += row.jiraEngineerCount ?? getEngineerCount(row.projectKey);
       serviceDeskHours += row.serviceDeskHoursResolved;
     }
 
@@ -717,17 +717,23 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
                 <TableCell sx={compactCellSx}>{row.projectName}</TableCell>
                 <TableCell sx={compactCellSx}>{row.sprintName}</TableCell>
                 <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
-                  <TextField
-                    type="number"
-                    size="small"
-                    value={getCapacity(row.projectKey)}
-                    onChange={(e) =>
-                      onCapacityChange(row.projectKey, parseInt(e.target.value, 10) || 0)
-                    }
-                    slotProps={{ htmlInput: { min: 0, style: { textAlign: 'right', fontSize: '0.75rem', padding: '2px 4px' } } }}
-                    sx={{ width: 60 }}
-                    variant="standard"
-                  />
+                  {row.jiraCapacity !== null ? (
+                    <Box component="span" title="From Jira Capacity page" sx={{ fontStyle: 'italic' }}>
+                      {row.jiraCapacity}
+                    </Box>
+                  ) : (
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={getCapacity(row.projectKey)}
+                      onChange={(e) =>
+                        onCapacityChange(row.projectKey, parseInt(e.target.value, 10) || 0)
+                      }
+                      slotProps={{ htmlInput: { min: 0, style: { textAlign: 'right', fontSize: '0.75rem', padding: '2px 4px' } } }}
+                      sx={{ width: 60 }}
+                      variant="standard"
+                    />
+                  )}
                 </TableCell>
                 <TableCell
                   sx={clickableCellSx(row.projectKey, 'day1')}
@@ -771,17 +777,23 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
                   })()}
                 </TableCell>
                 <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
-                  <TextField
-                    type="number"
-                    size="small"
-                    value={getEngineerCount(row.projectKey)}
-                    onChange={(e) =>
-                      onEngineerCountChange(row.projectKey, parseInt(e.target.value, 10) || 0)
-                    }
-                    slotProps={{ htmlInput: { min: 0, style: { textAlign: 'right', fontSize: '0.75rem', padding: '2px 4px' } } }}
-                    sx={{ width: 60 }}
-                    variant="standard"
-                  />
+                  {row.jiraEngineerCount !== null ? (
+                    <Box component="span" title="From Jira Capacity page" sx={{ fontStyle: 'italic' }}>
+                      {row.jiraEngineerCount}
+                    </Box>
+                  ) : (
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={getEngineerCount(row.projectKey)}
+                      onChange={(e) =>
+                        onEngineerCountChange(row.projectKey, parseInt(e.target.value, 10) || 0)
+                      }
+                      slotProps={{ htmlInput: { min: 0, style: { textAlign: 'right', fontSize: '0.75rem', padding: '2px 4px' } } }}
+                      sx={{ width: 60 }}
+                      variant="standard"
+                    />
+                  )}
                 </TableCell>
                 <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
                   {(() => {

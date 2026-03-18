@@ -88,9 +88,6 @@ const CapacityDemandContent = () => {
     searchParamsRef.current = searchParams;
   });
 
-  useEffect(() => {
-    document.title = 'Capacity v Demand';
-  }, []);
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     connected: false,

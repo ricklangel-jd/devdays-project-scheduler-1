@@ -51,6 +51,8 @@ const PARAMS_TO_CLEAR_ON_BOARD_CHANGE: string[] = [
   QUERY_PARAM_KEYS.SC_SPRINTS,
   QUERY_PARAM_KEYS.SV_FUTURE_SPRINTS,
   QUERY_PARAM_KEYS.TS_PI_SPRINTS,
+  QUERY_PARAM_KEYS.SP_SPRINT,
+  QUERY_PARAM_KEYS.CAP_SPRINT,
 ];
 
 // Navigation menu structure
@@ -63,6 +65,8 @@ const NAV_MENUS = [
       { label: 'Capacity v Demand', path: '/capacity-v-demand' },
       { label: 'All Work', path: '/all-work' },
       { label: 'PI Planning', path: '/pi-planning' },
+      { label: 'Sprint Planning', path: '/sprint-planning' },
+      { label: 'Capacity', path: '/capacity' },
     ],
   },
   {

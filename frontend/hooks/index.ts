@@ -9,3 +9,5 @@ export { useSprintCheckData } from './useSprintCheckData';
 export { useTimeSpentData } from './useTimeSpentData';
 export { usePiPlanningData } from './usePiPlanningData';
 export { useSprintMetricsData } from './useSprintMetricsData';
+export { useSprintPlanningData } from './useSprintPlanningData';
+export { useCapacityData } from './useCapacityData';

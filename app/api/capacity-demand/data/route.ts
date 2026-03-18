@@ -130,9 +130,9 @@ const findEpicsForPI = async (
 };
 
 /**
- * Original algorithm: sum child tickets per epic.
+ * Standard algorithm: sum all child tickets per epic.
  * When boardSprintIds is provided, only count tickets in those sprints.
- * Used when piSprints is not provided.
+ * Used when piSprints is not provided — no per-PI sprint filtering.
  */
 const processWithoutSprints = async (
   piLabels: string[],
@@ -148,12 +148,10 @@ const processWithoutSprints = async (
 
     for (const epic of epics) {
       try {
-        // Request story_point_estimate as extra field for fallback
         const jql = `("Epic Link" = ${epic.key} OR parent = ${epic.key}) AND ${EXCLUDE_MAINFRAME} ORDER BY key ASC`;
         const ticketsResponse = await client.searchAllIssues(jql, [STORY_POINT_ESTIMATE_FIELD]);
         const tickets = mapToTickets(ticketsResponse.issues, epic.key, fieldConfig);
 
-        // If board filtering is active, only count tickets in the board's sprints
         const filteredTickets = boardSprintIds
           ? tickets.filter((t) => (t.sprintIds ?? []).some((sid) => boardSprintIds.has(sid)))
           : tickets;
@@ -185,8 +183,7 @@ const processWithoutSprints = async (
 
 /**
  * Sprint-filtered algorithm: only count non-canceled stories assigned to
- * sprints within each PI. Multi-sprint stories are assigned to the PI
- * containing the sprint with the latest start date.
+ * a sprint within that PI. A story in sprints for multiple PIs counts in each.
  * When boardSprintIds is provided, additionally filter to only board sprints.
  */
 const processWithSprints = async (
@@ -199,37 +196,13 @@ const processWithSprints = async (
   const fieldConfig = buildFieldConfig(client);
 
   // Phase 1: Build sprint metadata maps
-  const allSprintIds = new Set<number>();
   const piSprintMap = new Map<string, Set<number>>(); // piLabel → set of sprint IDs
 
   for (const ps of piSprints) {
-    const sprintSet = new Set(ps.sprintIds);
-    piSprintMap.set(ps.piLabel, sprintSet);
-    for (const id of ps.sprintIds) {
-      allSprintIds.add(id);
-    }
-  }
-
-  // Fetch sprint details for start dates (used for multi-sprint dedup)
-  const sprintStartDateMap = new Map<number, string>(); // sprintId → ISO start date
-  if (allSprintIds.size > 0) {
-    console.log(`[Capacity/Demand] Fetching ${allSprintIds.size} sprint details for deduplication`);
-    const sprintDetails = await client.getSprintsByIds(Array.from(allSprintIds));
-    for (const sprint of sprintDetails) {
-      sprintStartDateMap.set(sprint.id, sprint.startDate ?? '');
-    }
-  }
-
-  // Build reverse map: sprintId → piLabel
-  const sprintToPiMap = new Map<number, string>();
-  for (const ps of piSprints) {
-    for (const id of ps.sprintIds) {
-      sprintToPiMap.set(id, ps.piLabel);
-    }
+    piSprintMap.set(ps.piLabel, new Set(ps.sprintIds));
   }
 
   // Phase 2: Find epics per PI and fetch all child tickets
-  // Collect per-PI epic info + all unique epic keys
   const piEpicInfo = new Map<string, { key: string; summary: string; isStretch: boolean }[]>();
   const allEpicKeys = new Set<string>();
 
@@ -242,13 +215,11 @@ const processWithSprints = async (
   }
 
   // Fetch child tickets for each unique epic (parallel)
-  // Use searchAllIssues for full pagination support
-  const epicTicketsMap = new Map<string, JiraTicket[]>(); // epicKey → tickets
+  const epicTicketsMap = new Map<string, JiraTicket[]>();
 
   const ticketFetchPromises = Array.from(allEpicKeys).map(async (epicKey) => {
     try {
       const jql = `("Epic Link" = ${epicKey} OR parent = ${epicKey}) AND ${EXCLUDE_MAINFRAME} ORDER BY key ASC`;
-      // Request story_point_estimate as extra field for fallback
       const response = await client.searchAllIssues(jql, [STORY_POINT_ESTIMATE_FIELD]);
       const tickets = mapToTickets(response.issues, epicKey, fieldConfig);
       epicTicketsMap.set(epicKey, tickets);
@@ -260,62 +231,25 @@ const processWithSprints = async (
 
   await Promise.all(ticketFetchPromises);
 
-  // Phase 3: Multi-sprint deduplication
-  // For each ticket, determine which PI "owns" it based on the latest sprint (by start date)
-  // among the sprints that are assigned to any PI.
-  const ticketOwnerPi = new Map<string, { piLabel: string; latestDate: string }>();
-
-  for (const [piLabel, sprintIds] of piSprintMap.entries()) {
-    const epics = piEpicInfo.get(piLabel) ?? [];
-
-    for (const epic of epics) {
-      const tickets = epicTicketsMap.get(epic.key) ?? [];
-
-      for (const ticket of tickets) {
-        // Skip canceled tickets
-        if (isCanceledStatus(ticket.status)) continue;
-
-        // Find intersection of ticket's sprints with THIS PI's sprints (and board if filtering)
-        const ticketSprints = boardSprintIds
-          ? (ticket.sprintIds ?? []).filter((sid) => boardSprintIds.has(sid))
-          : (ticket.sprintIds ?? []);
-        const matchingSprints = ticketSprints.filter((sid) => sprintIds.has(sid));
-        if (matchingSprints.length === 0) continue;
-
-        // Find the latest sprint start date among matching sprints
-        let latestDate = '';
-        for (const sid of matchingSprints) {
-          const startDate = sprintStartDateMap.get(sid) ?? '';
-          if (startDate > latestDate) {
-            latestDate = startDate;
-          }
-        }
-
-        // Check if this PI should own this ticket (latest sprint wins)
-        const existing = ticketOwnerPi.get(ticket.key);
-        if (!existing || latestDate > existing.latestDate) {
-          ticketOwnerPi.set(ticket.key, { piLabel, latestDate });
-        }
-      }
-    }
-  }
-
-  console.log(`[Capacity/Demand] Sprint dedup: ${ticketOwnerPi.size} tickets assigned to PIs`);
-
-  // Phase 4: Sum points per PI per epic, only counting tickets owned by that PI
+  // Phase 3: Sum points per PI per epic.
+  // A ticket counts toward a PI if it is in at least one of that PI's sprints.
   const piData: PIDemand[] = piLabels.map((label) => {
     const epics = piEpicInfo.get(label) ?? [];
+    const piSprintIds = piSprintMap.get(label) ?? new Set<number>();
 
     const epicDemands: EpicDemand[] = epics.map((epic) => {
       const tickets = epicTicketsMap.get(epic.key) ?? [];
 
-      // Sum devDays for tickets owned by this PI
       const totalPoints = tickets.reduce((sum, ticket) => {
-        const owner = ticketOwnerPi.get(ticket.key);
-        if (owner && owner.piLabel === label) {
-          return sum + ticket.devDays;
-        }
-        return sum;
+        if (isCanceledStatus(ticket.status)) return sum;
+
+        const ticketSprints = boardSprintIds
+          ? (ticket.sprintIds ?? []).filter((sid) => boardSprintIds.has(sid))
+          : (ticket.sprintIds ?? []);
+
+        // Count this ticket only if it's in a sprint assigned to this PI
+        const inThisPi = ticketSprints.some((sid) => piSprintIds.has(sid));
+        return inThisPi ? sum + ticket.devDays : sum;
       }, 0);
 
       return {

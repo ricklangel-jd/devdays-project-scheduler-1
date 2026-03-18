@@ -60,9 +60,6 @@ const TimeSpentContent = () => {
     searchParamsRef.current = searchParams;
   });
 
-  useEffect(() => {
-    document.title = 'Time Spent';
-  }, []);
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     connected: false,

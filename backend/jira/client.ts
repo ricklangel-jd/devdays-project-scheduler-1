@@ -481,6 +481,39 @@ export class JiraClient {
   };
 
   /**
+   * Create a new JIRA issue
+   */
+  createIssue = async (fields: Record<string, unknown>): Promise<{ key: string; id: string }> => {
+    return this.fetch<{ key: string; id: string }>('/rest/api/3/issue', {
+      method: 'POST',
+      body: JSON.stringify({ fields }),
+    });
+  };
+
+  /**
+   * Get a single issue including its description field
+   */
+  getIssueWithDescription = async (issueKey: string): Promise<JiraIssueResponse> => {
+    return this.fetch<JiraIssueResponse>(
+      `/rest/api/3/issue/${issueKey}?fields=summary,status,description,parent,issuetype`
+    );
+  };
+
+  /**
+   * Search issues by JQL returning summary + description
+   */
+  searchIssuesWithDescription = async (jql: string): Promise<JiraSearchResponse> => {
+    return this.fetch<JiraSearchResponse>('/rest/api/3/search/jql', {
+      method: 'POST',
+      body: JSON.stringify({
+        jql,
+        fields: ['summary', 'description', 'issuetype', 'parent', 'status'],
+        maxResults: 200,
+      }),
+    });
+  };
+
+  /**
    * Get tickets in a sprint that are NOT linked to any of the specified epics
    */
   getSprintTicketsExcludingEpics = async (sprintId: number, epicKeys: string[]): Promise<JiraSearchResponse> => {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getJiraClient, EXCLUDE_MAINFRAME, mapToTicketAutoEpic, mapToSprints } from '@/backend/jira';
 import type { FieldConfig } from '@/backend/jira/mappers';
 import type { JiraIssueResponse } from '@/shared/types';
+import { deserializeCapacity, computeTotalCapacity, countNonTechLeadEngineers } from '@/shared/lib/capacity';
 
 /**
  * Jira built-in field for "Story point estimate" -- used as fallback
@@ -44,7 +45,11 @@ interface SprintMetricsRow {
   carryoverPoints: number;
   serviceDeskHoursResolved: number;
   issues: SprintMetricsIssue[];
+  jiraCapacity: number | null;
+  jiraEngineerCount: number | null;
 }
+
+const CAPACITY_EPIC_TITLE = 'PI Capacity Planning';
 
 interface SprintMetricsGrid {
   offset: number;   // 0 = current, -1 = previous, etc.
@@ -119,6 +124,74 @@ export const POST = async (request: NextRequest) => {
         doneStatusesCache.set(boardId, await client.getDoneStatuses(boardId));
       }
       return doneStatusesCache.get(boardId)!;
+    };
+
+    // Cache PI Capacity Planning epic key per project
+    const capacityEpicCache = new Map<string, string | null>();
+    const getCapacityEpicKey = async (projectKey: string): Promise<string | null> => {
+      if (capacityEpicCache.has(projectKey)) return capacityEpicCache.get(projectKey)!;
+      const jql = `project = "${projectKey}" AND issuetype = Epic AND summary ~ "${CAPACITY_EPIC_TITLE}" ORDER BY created ASC`;
+      console.log('[capacity] epic JQL:', jql);
+      const results = await client.searchIssuesWithDescription(jql);
+      console.log('[capacity] epic results:', results.issues.map((i) => ({ key: i.key, summary: i.fields.summary })));
+      const match = results.issues.find(
+        (i) => (i.fields.summary as string).trim() === CAPACITY_EPIC_TITLE
+      );
+      const epicKey = match?.key ?? null;
+      console.log('[capacity] epicKey:', epicKey);
+      capacityEpicCache.set(projectKey, epicKey);
+      return epicKey;
+    };
+
+    // Look up the capacity story for a sprint and return { totalCapacity, engineerCount } or null
+    const getSprintCapacity = async (
+      projectKey: string,
+      sprintId: number,
+      sprintName: string
+    ): Promise<{ totalCapacity: number; engineerCount: number } | null> => {
+      const epicKey = await getCapacityEpicKey(projectKey);
+      if (!epicKey) { console.log('[capacity] no epic found for', projectKey); return null; }
+
+      // Search all children of the epic without a summary filter — the ~ operator
+      // breaks on sprint names containing hyphens or version numbers.
+      const storyTitle = `${sprintId}-${sprintName}`;
+      const jql = `parent = "${epicKey}" ORDER BY created ASC`;
+      console.log('[capacity] story lookup — title:', storyTitle, 'JQL:', jql);
+      const results = await client.searchIssuesWithDescription(jql);
+      console.log('[capacity] story results:', results.issues.map((i) => ({ key: i.key, summary: i.fields.summary })));
+      const story = results.issues.find(
+        (i) => (i.fields.summary as string).trim().toLowerCase() === storyTitle.toLowerCase()
+      );
+      if (!story) { console.log('[capacity] no matching story for title:', storyTitle); return null; }
+
+      console.log('[capacity] found story:', story.key, '— description type:', typeof story.fields.description);
+      const description = story.fields.description;
+      if (!description || typeof description !== 'object') return null;
+
+      // Extract text from ADF codeBlock
+      const doc = description as { content?: unknown[] };
+      let text: string | null = null;
+      for (const block of doc.content ?? []) {
+        const b = block as { type?: string; content?: unknown[] };
+        if (b.type === 'codeBlock' || b.type === 'paragraph') {
+          for (const inline of b.content ?? []) {
+            const n = inline as { type?: string; text?: string };
+            if (n.type === 'text' && n.text) { text = n.text; break; }
+          }
+        }
+        if (text) break;
+      }
+      console.log('[capacity] extracted text:', text);
+      if (!text) return null;
+
+      const payload = deserializeCapacity(text);
+      console.log('[capacity] deserialized payload:', payload);
+      if (!payload) return null;
+
+      return {
+        totalCapacity: computeTotalCapacity(payload.rows, payload.supportPct),
+        engineerCount: countNonTechLeadEngineers(payload.rows),
+      };
     };
 
     // ── Per-selection: find sprints, compute metrics ──────────────────
@@ -197,11 +270,12 @@ export const POST = async (request: NextRequest) => {
 
         const serviceDeskPromise = client.searchAllIssues(serviceDeskJql, ['timespent', 'status', 'summary']);
 
-        const [issuesResponse, sprintReport, carryoverResponse, serviceDeskResponse] = await Promise.all([
+        const [issuesResponse, sprintReport, carryoverResponse, serviceDeskResponse, sprintCapacity] = await Promise.all([
           client.searchAllIssues(jql),
           client.getSprintReport(boardId, sprint.id),
           carryoverPromise,
           serviceDeskPromise,
+          getSprintCapacity(projectKey, sprint.id, sprint.name),
         ]);
 
         const addedKeys = new Set(
@@ -303,6 +377,8 @@ export const POST = async (request: NextRequest) => {
           carryoverPoints,
           serviceDeskHoursResolved,
           issues,
+          jiraCapacity: sprintCapacity?.totalCapacity ?? null,
+          jiraEngineerCount: sprintCapacity?.engineerCount ?? null,
         });
       }
 
@@ -340,6 +416,8 @@ export const POST = async (request: NextRequest) => {
             carryoverPoints: 0,
             serviceDeskHoursResolved: 0,
             issues: [],
+            jiraCapacity: null,
+            jiraEngineerCount: null,
           });
         }
       }

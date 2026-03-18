@@ -436,9 +436,6 @@ const PiStatusContent = () => {
     searchParamsRef.current = searchParams;
   });
 
-  useEffect(() => {
-    document.title = 'PI Status';
-  }, []);
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     connected: false,
