@@ -2,7 +2,9 @@
 
 import { useMemo, useRef, useState, useEffect } from 'react';
 import Box from '@mui/material/Box';
+import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
+import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { EPIC_COLORS } from '@/shared/constants';
 import type { SprintMetricsData } from '@/frontend/hooks/useSprintMetricsData';
@@ -10,7 +12,7 @@ import type { SprintMetricsData } from '@/frontend/hooks/useSprintMetricsData';
 // ── Chart constants ──────────────────────────────────────────────────
 
 const CHART_HEIGHT = 420;
-const MARGIN = { top: 30, right: 30, bottom: 80, left: 65 };
+const MARGIN = { top: 30, right: 30, bottom: 100, left: 65 };
 const BAR_GAP = 0.3; // fraction of bar width used as gap between bars
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -32,6 +34,12 @@ const SprintPointsByTeamChart = ({ data }: SprintPointsByTeamChartProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(900);
 
+  // Default to offset -1 (1 sprint back); fall back to whatever is available
+  const defaultOffset = data.grids.find((g) => g.offset === -1)?.offset
+    ?? data.grids[0]?.offset
+    ?? -1;
+  const [selectedOffset, setSelectedOffset] = useState<number>(defaultOffset);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -43,10 +51,9 @@ const SprintPointsByTeamChart = ({ data }: SprintPointsByTeamChartProps) => {
     return () => observer.disconnect();
   }, []);
 
-  // Get the grid at offset -1 (1 sprint back)
   const { teams, sprintLabel } = useMemo(() => {
-    const grid = data.grids.find((g) => g.offset === -1);
-    if (!grid) return { teams: [] as TeamPoints[], sprintLabel: '1 Sprint Back' };
+    const grid = data.grids.find((g) => g.offset === selectedOffset);
+    if (!grid) return { teams: [] as TeamPoints[], sprintLabel: '' };
 
     const teams: TeamPoints[] = grid.rows.map((row) => ({
       projectKey: row.projectKey,
@@ -56,7 +63,7 @@ const SprintPointsByTeamChart = ({ data }: SprintPointsByTeamChartProps) => {
     }));
 
     return { teams, sprintLabel: grid.label };
-  }, [data]);
+  }, [data, selectedOffset]);
 
   const maxPoints = useMemo(() => {
     let max = 0;
@@ -91,16 +98,26 @@ const SprintPointsByTeamChart = ({ data }: SprintPointsByTeamChartProps) => {
   return (
     <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
       <Paper ref={containerRef} sx={{ px: 3, py: 1.5, overflow: 'hidden' }} elevation={1}>
-        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.25 }}>
-          Sprint Points by Team — {sprintLabel}
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          Resolved points per project for the previous sprint.
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+          <Typography variant="subtitle1" fontWeight={700}>
+            Sprint Points by Team
+          </Typography>
+          <TextField
+            select
+            size="small"
+            value={selectedOffset}
+            onChange={(e) => setSelectedOffset(Number(e.target.value))}
+            sx={{ minWidth: 160 }}
+          >
+            {data.grids.map((g) => (
+              <MenuItem key={g.offset} value={g.offset}>{g.label}</MenuItem>
+            ))}
+          </TextField>
+        </Box>
 
         {barCount === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-            No data available for 1 sprint back. Ensure at least 1 historical sprint is loaded.
+            No data available for the selected sprint.
           </Typography>
         ) : (
           <svg width={svgWidth} height={CHART_HEIGHT} style={{ display: 'block', margin: '0 auto' }}>
@@ -167,7 +184,7 @@ const SprintPointsByTeamChart = ({ data }: SprintPointsByTeamChartProps) => {
                       {team.resolvedPoints}
                     </text>
 
-                    {/* X-axis label */}
+                    {/* X-axis label — project name */}
                     <text
                       x={x + barWidth / 2}
                       y={chartHeight + 14}
@@ -178,6 +195,18 @@ const SprintPointsByTeamChart = ({ data }: SprintPointsByTeamChartProps) => {
                       transform={`rotate(-45, ${x + barWidth / 2}, ${chartHeight + 14})`}
                     >
                       {team.projectName}
+                    </text>
+                    {/* X-axis label — sprint name */}
+                    <text
+                      x={x + barWidth / 2}
+                      y={chartHeight + 28}
+                      textAnchor="end"
+                      dominantBaseline="hanging"
+                      fontSize={9}
+                      fill="#999"
+                      transform={`rotate(-45, ${x + barWidth / 2}, ${chartHeight + 28})`}
+                    >
+                      {team.sprintName}
                     </text>
                   </g>
                 );

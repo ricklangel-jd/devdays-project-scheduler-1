@@ -305,6 +305,9 @@ export const POST = async (request: NextRequest) => {
       return { label, epics };
     });
 
+    // Sort PI columns chronologically: by year then by PI number (PI1–PI4)
+    piData.sort((a, b) => piSortKey(a.label) - piSortKey(b.label));
+
     // Post-process stretch labels
     postProcessStretch(piData);
 

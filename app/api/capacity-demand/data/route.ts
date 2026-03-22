@@ -247,8 +247,11 @@ const processWithSprints = async (
           ? (ticket.sprintIds ?? []).filter((sid) => boardSprintIds.has(sid))
           : (ticket.sprintIds ?? []);
 
-        // Count this ticket only if it's in a sprint assigned to this PI
-        const inThisPi = ticketSprints.some((sid) => piSprintIds.has(sid));
+        // Attribute a ticket only to the PI that contains its LAST sprint (max ID).
+        // This prevents stories that moved between sprints from being double-counted
+        // across multiple PIs.
+        const lastSprintId = ticketSprints.length > 0 ? Math.max(...ticketSprints) : null;
+        const inThisPi = lastSprintId !== null && piSprintIds.has(lastSprintId);
         return inThisPi ? sum + ticket.devDays : sum;
       }, 0);
 
@@ -307,6 +310,9 @@ export const POST = async (request: NextRequest) => {
       console.log('[Capacity/Demand] Standard mode (no sprint filtering)');
       piData = await processWithoutSprints(piLabels, projectKey, client, boardSprintIds);
     }
+
+    // Sort PI columns chronologically: by year then by PI number (PI1–PI4)
+    piData.sort((a, b) => piSortKey(a.label) - piSortKey(b.label));
 
     // Post-process stretch labels (applies to both modes)
     postProcessStretch(piData);

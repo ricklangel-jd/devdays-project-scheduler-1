@@ -21,18 +21,22 @@ import Tabs from '@mui/material/Tabs';
 import CircularProgress from '@mui/material/CircularProgress';
 import Alert from '@mui/material/Alert';
 import Divider from '@mui/material/Divider';
+import Collapse from '@mui/material/Collapse';
+import IconButton from '@mui/material/IconButton';
 import AddIcon from '@mui/icons-material/Add';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { Header } from '@/frontend/components';
 import ProjectSearch from '@/frontend/components/sidebar/ProjectSearch';
 import BoardSelector from '@/frontend/components/sidebar/BoardSelector';
 import { useSprintMetricsData } from '@/frontend/hooks';
 import { QUERY_PARAM_KEYS } from '@/shared/types';
 import type { JiraProject } from '@/shared/types';
-import type { SprintMetricsData, SprintMetricsGrid, SprintMetricsIssue } from '@/frontend/hooks/useSprintMetricsData';
+import type { SprintMetricsData, SprintMetricsGrid, SprintMetricsIssue, SprintMetricsRow } from '@/frontend/hooks/useSprintMetricsData';
 import VelocityTrendChart from './VelocityTrendChart';
 import CarryoverTrendChart from './CarryoverTrendChart';
 import SprintPointsByTeamChart from './SprintPointsByTeamChart';
+import EngOutputsVsGoalChart from './EngOutputsVsGoalChart';
 
 interface ConnectionStatus {
   connected: boolean;
@@ -116,7 +120,8 @@ const compactCellSx = {
 const compactHeaderSx = {
   ...compactCellSx,
   fontWeight: 700,
-  whiteSpace: 'nowrap' as const,
+  whiteSpace: 'normal' as const,
+  verticalAlign: 'bottom',
   bgcolor: 'grey.100',
 };
 
@@ -131,9 +136,27 @@ interface SelectedCell {
   column: string;
 }
 
+// ── Adjusted Combined Output ──────────────────────────────────────────
+// Derived metric — update this function when the calculation changes.
+const computeAdjustedCombinedOutput = (row: SprintMetricsRow): number => {
+  const sdHours = row.serviceDeskHoursResolved;
+  const sdPoints = sdHours === 0 ? 0 : sdHours < 5 ? 1 : sdHours / 5;
+  return Math.round((row.resolvedPoints + sdPoints) * 10) / 10;
+};
+
+const computePlanningAccuracy = (row: SprintMetricsRow, capacity: number): number => {
+  if (capacity === 0) return 0;
+  return Math.round((row.day1Points / capacity) * 1000) / 10; // percentage, e.g. 92.3
+};
+
+const computeEngineerOutputAverage = (row: SprintMetricsRow, engCount: number): number => {
+  if (engCount === 0) return 0;
+  return Math.round((computeAdjustedCombinedOutput(row) / engCount) * 10) / 10;
+};
+
 // ── MetricsGrid sort types ────────────────────────────────────────────
 
-type MetricsSortField = 'projectKey' | 'sprintName' | 'capacity' | 'day1Points' | 'resolvedPoints' | 'lastDayPoints' | 'scopeChangePoints' | 'carryoverPoints' | 'velocity' | 'velocitySwing' | 'engineerCount' | 'completedVsPlanned' | 'serviceDeskHours';
+type MetricsSortField = 'projectKey' | 'sprintName' | 'capacity' | 'day1Points' | 'resolvedPoints' | 'lastDayPoints' | 'scopeChangeInPoints' | 'scopeChangeOutPoints' | 'carryoverPoints' | 'carryoverAllPoints' | 'adjustedCombinedOutput' | 'engineerOutputAverage' | 'planningAccuracy' | 'day1AllPointed' | 'velocity' | 'velocitySwing' | 'engineerCount' | 'completedVsPlanned' | 'serviceDeskHours';
 type SortDirection = 'asc' | 'desc';
 
 // ── IssueDetailGrid sort types ────────────────────────────────────────
@@ -481,6 +504,7 @@ const SprintMetricsContent = () => {
           <Tab label="Trend Velocity" />
           <Tab label="Trend Carryover" />
           <Tab label="Sprint Points by Team" />
+          <Tab label="Eng Outputs vs Goal" />
         </Tabs>
 
         {/* ── Sprint Facts tab ────────────────────────────────────────── */}
@@ -529,24 +553,9 @@ const SprintMetricsContent = () => {
             )}
 
             {/* ── Detail Grid + Legend ─────────────────────────────────── */}
-            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', mt: 'auto', pt: 1 }}>
+            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', alignItems: 'flex-start', mt: 'auto', pt: 1 }}>
               <IssueDetailGrid issues={detailIssues} selectedCell={selectedCell} data={data} />
-              <Paper elevation={1} sx={{ px: 2, py: 1, maxWidth: 480, flexShrink: 0, bgcolor: 'grey.50' }}>
-                <Typography variant="caption" fontWeight={700} sx={{ mb: 0.5, display: 'block' }}>
-                  Calculated Columns
-                </Typography>
-                <Typography variant="caption" component="div" color="text.secondary" sx={{ lineHeight: 1.6 }}>
-                  <b>Day 1 Pts</b> = points committed at sprint start (excludes mid-sprint additions)<br />
-                  <b>Resolved</b> = points in a done status (excludes canceled)<br />
-                  <b>Last Day Pts</b> = total non-canceled points in the sprint<br />
-                  <b>Scope Changes</b> = points added after sprint start<br />
-                  <b>Carryover</b> = points carried from the previous sprint (excludes Blocked)<br />
-                  <b>3 Sprint Velocity</b> = (this sprint Resolved + 2 previous sprints Resolved) / 3<br />
-                  <b>Velocity Swing %</b> = (Resolved - 3 Sprint Velocity) / 3 Sprint Velocity<br />
-                  <b>% Completed vs Planned</b> = Resolved / Day 1 Pts<br />
-                  <b>SD/Splunk Hours Resolved</b> = hours logged on resolved [System] Incident, Problem, or Service request tickets
-                </Typography>
-              </Paper>
+              <LegendPanel />
             </Box>
           </Box>
         )}
@@ -565,8 +574,81 @@ const SprintMetricsContent = () => {
         {activeTab === 3 && data && data.grids.length > 0 && (
           <SprintPointsByTeamChart data={data} />
         )}
+
+        {/* ── Eng Outputs vs Goal tab ────────────────────────────────── */}
+        {activeTab === 4 && data && data.grids.length > 0 && (
+          <EngOutputsVsGoalChart data={data} />
+        )}
       </Box>
     </Box>
+  );
+};
+
+// ── LegendPanel sub-component ────────────────────────────────────────
+
+const LegendPanel = () => {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <Paper elevation={1} sx={{ minWidth: 340, maxWidth: 560, flexShrink: 0, bgcolor: 'grey.50', overflow: 'hidden' }}>
+      {/* Header / toggle row */}
+      <Box
+        onClick={() => setOpen((v) => !v)}
+        sx={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          px: 2, py: 0.75, cursor: 'pointer',
+          '&:hover': { bgcolor: 'grey.100' },
+        }}
+      >
+        <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.75rem' }}>
+          Column Definitions
+        </Typography>
+        <IconButton size="small" sx={{ p: 0.25, transition: 'transform 200ms', transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+          <ExpandMoreIcon fontSize="small" />
+        </IconButton>
+      </Box>
+
+      <Collapse in={open}>
+        <Box sx={{ px: 2, pb: 1.5 }}>
+          {/* Commitments */}
+          <Typography variant="caption" fontWeight={600} color="text.primary" sx={{ display: 'block', mt: 0.5 }}>
+            Commitments
+          </Typography>
+          <Typography variant="caption" component="div" color="text.secondary" sx={{ lineHeight: 1.65, pl: 1 }}>
+            <b>Day 1 Pts</b> — stories in the sprint at the official start (Wed noon); excludes stories added after the cutoff and stories punted before the cutoff<br />
+            <b>Scope In</b> — points added to the sprint after Wed noon<br />
+            <b>Scope Out</b> — day-1 story points removed mid-sprint (excludes early punts before Wed noon and last-day removals)<br />
+            <b>Capacity</b> — total engineer-days entered in the sidebar (or from the Jira capacity story)
+          </Typography>
+
+          {/* Outcomes */}
+          <Typography variant="caption" fontWeight={600} color="text.primary" sx={{ display: 'block', mt: 1 }}>
+            Outcomes
+          </Typography>
+          <Typography variant="caption" component="div" color="text.secondary" sx={{ lineHeight: 1.65, pl: 1 }}>
+            <b>Resolved</b> — points moved to a Done status during the sprint (excludes canceled)<br />
+            <b>Last Day Pts</b> — all non-canceled points present in the sprint on the final day (incl. stories removed that day)<br />
+            <b>Carryover</b> — day-1 story points not completed by sprint end; carried to the next sprint (excludes Blocked)<br />
+            <b>Carryover (All)</b> — same as Carryover but includes Blocked stories<br />
+            <b>SD/Splunk Hrs Resolved</b> — hours logged on resolved [System] Incident, Problem, or Service Request tickets
+          </Typography>
+
+          {/* Derived metrics */}
+          <Typography variant="caption" fontWeight={600} color="text.primary" sx={{ display: 'block', mt: 1 }}>
+            Derived Metrics
+          </Typography>
+          <Typography variant="caption" component="div" color="text.secondary" sx={{ lineHeight: 1.65, pl: 1 }}>
+            <b>3 Sprint Velocity</b> = (Resolved this sprint + 2 prior sprints) ÷ 3<br />
+            <b>Velocity Swing %</b> = (Resolved − 3 Sprint Velocity) ÷ 3 Sprint Velocity<br />
+            <b>% Completed vs Planned</b> = Resolved ÷ Day 1 Pts<br />
+            <b>Adjusted Combined Output</b> = Resolved + SD credit, where SD credit = 1 if 0 &lt; SD hrs &lt; 5, else SD hrs ÷ 5 (rounded to tenth)<br />
+            <b>Engineer Output Avg</b> = Adjusted Combined Output ÷ Eng Count (rounded to tenth)<br />
+            <b>Planning Accuracy</b> = Day 1 Pts ÷ Capacity (as %)<br />
+            <b>Day 1 Stories Pointed</b> — ✓ if every day-1 story (excl. Service Tickets) had points at sprint start; ✗ lists unpointed stories (click to view)
+          </Typography>
+        </Box>
+      </Collapse>
+    </Paper>
   );
 };
 
@@ -605,8 +687,14 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
       case 'day1Points': return row.day1Points;
       case 'resolvedPoints': return row.resolvedPoints;
       case 'lastDayPoints': return row.lastDayPoints;
-      case 'scopeChangePoints': return row.scopeChangePoints;
+      case 'scopeChangeInPoints': return row.scopeChangeInPoints;
+      case 'scopeChangeOutPoints': return row.scopeChangeOutPoints;
       case 'carryoverPoints': return row.carryoverPoints;
+      case 'carryoverAllPoints': return row.carryoverAllPoints;
+      case 'adjustedCombinedOutput': return computeAdjustedCombinedOutput(row);
+      case 'engineerOutputAverage': return computeEngineerOutputAverage(row, row.jiraEngineerCount ?? getEngineerCount(row.projectKey));
+      case 'planningAccuracy': return computePlanningAccuracy(row, row.jiraCapacity ?? getCapacity(row.projectKey));
+      case 'day1AllPointed': return row.day1AllPointed ? 1 : 0;
       case 'velocity': return velocityMap.get(row.projectKey) ?? 0;
       case 'velocitySwing': {
         const vel = velocityMap.get(row.projectKey) ?? 0;
@@ -639,8 +727,10 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
     let day1 = 0;
     let resolved = 0;
     let lastDay = 0;
-    let scopeChange = 0;
+    let scopeChangeIn = 0;
+    let scopeChangeOut = 0;
     let carryover = 0;
+    let carryoverAll = 0;
     let velocitySum = 0;
     let engineers = 0;
     let serviceDeskHours = 0;
@@ -650,8 +740,10 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
       day1 += row.day1Points;
       resolved += row.resolvedPoints;
       lastDay += row.lastDayPoints;
-      scopeChange += row.scopeChangePoints;
+      scopeChangeIn += row.scopeChangeInPoints;
+      scopeChangeOut += row.scopeChangeOutPoints;
       carryover += row.carryoverPoints;
+      carryoverAll += row.carryoverAllPoints;
       velocitySum += velocityMap.get(row.projectKey) ?? 0;
       engineers += row.jiraEngineerCount ?? getEngineerCount(row.projectKey);
       serviceDeskHours += row.serviceDeskHoursResolved;
@@ -659,7 +751,10 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
 
     const velocity = Math.round(velocitySum * 10) / 10;
     const serviceDeskHoursTotal = Math.round(serviceDeskHours * 10) / 10;
-    return { capacity, day1, resolved, lastDay, scopeChange, carryover, velocity, engineers, serviceDeskHoursTotal };
+    const adjustedCombinedOutput = Math.round(grid.rows.reduce((sum, row) => sum + computeAdjustedCombinedOutput(row), 0) * 10) / 10;
+    const engineerOutputAverage = engineers === 0 ? 0 : Math.round((adjustedCombinedOutput / engineers) * 10) / 10;
+    const planningAccuracy = capacity === 0 ? 0 : Math.round((day1 / capacity) * 1000) / 10;
+    return { capacity, day1, resolved, lastDay, scopeChangeIn, scopeChangeOut, carryover, carryoverAll, adjustedCombinedOutput, engineerOutputAverage, planningAccuracy, velocity, engineers, serviceDeskHoursTotal };
   }, [grid.rows, getCapacity, getEngineerCount, velocityMap]);
 
   // Helper for clickable cell styling
@@ -693,7 +788,7 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
         {grid.label}
       </Typography>
       <TableContainer>
-        <Table size="small" stickyHeader>
+        <Table size="small" stickyHeader sx={{ tableLayout: 'auto' }}>
           <TableHead>
             <TableRow>
               {sortHeader('projectKey', 'Project', 'left')}
@@ -702,13 +797,19 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
               {sortHeader('day1Points', 'Day 1 Pts')}
               {sortHeader('resolvedPoints', 'Resolved')}
               {sortHeader('lastDayPoints', 'Last Day Pts')}
-              {sortHeader('scopeChangePoints', 'Scope Changes')}
+              {sortHeader('scopeChangeInPoints', 'Scope In')}
+              {sortHeader('scopeChangeOutPoints', 'Scope Out')}
               {sortHeader('carryoverPoints', 'Carryover')}
+              {sortHeader('carryoverAllPoints', 'Carryover (All)')}
               {sortHeader('velocity', '3 Sprint Velocity')}
               {sortHeader('velocitySwing', 'Velocity Swing %')}
               {sortHeader('engineerCount', 'Eng Count (excl TL)')}
               {sortHeader('completedVsPlanned', '% Completed vs Planned')}
               {sortHeader('serviceDeskHours', 'SD/Splunk Hours Resolved')}
+              {sortHeader('adjustedCombinedOutput', 'Adjusted Combined Output')}
+              {sortHeader('engineerOutputAverage', 'Engineer Output Average')}
+              {sortHeader('planningAccuracy', 'Planning Accuracy')}
+              {sortHeader('day1AllPointed', 'Day 1 Stories Pointed')}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -757,13 +858,25 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
                   sx={clickableCellSx(row.projectKey, 'scopeChange')}
                   onClick={() => onCellClick(grid.offset, row.projectKey, 'scopeChange')}
                 >
-                  {row.scopeChangePoints}
+                  {row.scopeChangeInPoints}
+                </TableCell>
+                <TableCell
+                  sx={clickableCellSx(row.projectKey, 'scopeChangeOut')}
+                  onClick={() => onCellClick(grid.offset, row.projectKey, 'scopeChangeOut')}
+                >
+                  {row.scopeChangeOutPoints}
                 </TableCell>
                 <TableCell
                   sx={clickableCellSx(row.projectKey, 'carryover')}
                   onClick={() => onCellClick(grid.offset, row.projectKey, 'carryover')}
                 >
                   {row.carryoverPoints}
+                </TableCell>
+                <TableCell
+                  sx={clickableCellSx(row.projectKey, 'carryoverAll')}
+                  onClick={() => onCellClick(grid.offset, row.projectKey, 'carryoverAll')}
+                >
+                  {row.carryoverAllPoints}
                 </TableCell>
                 <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{velocityMap.get(row.projectKey) ?? 0}</TableCell>
                 <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
@@ -809,6 +922,23 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
                 >
                   {row.serviceDeskHoursResolved}
                 </TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
+                  {computeAdjustedCombinedOutput(row)}
+                </TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
+                  {computeEngineerOutputAverage(row, row.jiraEngineerCount ?? getEngineerCount(row.projectKey))}
+                </TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
+                  {computePlanningAccuracy(row, row.jiraCapacity ?? getCapacity(row.projectKey))}%
+                </TableCell>
+                <TableCell
+                  sx={{ ...clickableCellSx(row.projectKey, 'day1Unpointed'), textAlign: 'center' }}
+                  onClick={() => onCellClick(grid.offset, row.projectKey, 'day1Unpointed')}
+                >
+                  <Box component="span" sx={{ color: row.day1AllPointed ? 'success.main' : 'error.main', fontWeight: 700 }}>
+                    {row.day1AllPointed ? '✓' : '✗'}
+                  </Box>
+                </TableCell>
               </TableRow>
             ))}
 
@@ -821,8 +951,10 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
                 <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.day1}</TableCell>
                 <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.resolved}</TableCell>
                 <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.lastDay}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.scopeChange}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.scopeChangeIn}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.scopeChangeOut}</TableCell>
                 <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.carryover}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.carryoverAll}</TableCell>
                 <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.velocity}</TableCell>
                 <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
                   {(() => {
@@ -842,6 +974,15 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
                   })()}
                 </TableCell>
                 <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.serviceDeskHoursTotal}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.adjustedCombinedOutput}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.engineerOutputAverage}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.planningAccuracy}%</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>
+                  {(() => {
+                    const allPointed = grid.rows.every((r) => r.day1AllPointed);
+                    return <Box component="span" sx={{ color: allPointed ? 'success.main' : 'error.main', fontWeight: 700 }}>{allPointed ? '✓' : '✗'}</Box>;
+                  })()}
+                </TableCell>
               </TableRow>
             )}
           </TableBody>
@@ -861,10 +1002,13 @@ interface IssueDetailGridProps {
 
 const COLUMN_LABELS: Record<string, string> = {
   day1: 'Day 1 Pts',
+  day1Unpointed: 'Day 1 Unpointed Stories',
   resolved: 'Resolved',
   lastDay: 'Last Day Pts',
-  scopeChange: 'Scope Changes',
+  scopeChange: 'Scope In',
+  scopeChangeOut: 'Scope Out',
   carryover: 'Carryover',
+  carryoverAll: 'Carryover (All)',
   serviceDesk: 'SD/Splunk Hours',
 };
 

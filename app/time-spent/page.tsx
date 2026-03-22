@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState, useCallback, useRef } from 'react';
+import { Suspense, useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -22,30 +22,6 @@ interface ConnectionStatus {
   email?: string;
 }
 
-/**
- * Parse piSprints URL param: "PI1_2025:101.102.103,PI2_2025:104.105.106"
- */
-const parsePiSprints = (value: string | null): PiSprintAssignment[] => {
-  if (!value) return [];
-  return value
-    .split(',')
-    .map((entry) => {
-      const colonIdx = entry.indexOf(':');
-      if (colonIdx < 0) return { piLabel: entry, sprintIds: [] };
-      const piLabel = entry.slice(0, colonIdx);
-      const ids = entry
-        .slice(colonIdx + 1)
-        .split('.')
-        .map(Number)
-        .filter((n) => !isNaN(n));
-      return { piLabel, sprintIds: ids };
-    })
-    .filter((a) => a.piLabel && a.sprintIds.length > 0);
-};
-
-/**
- * Serialize piSprints to URL param format
- */
 const serializePiSprints = (assignments: PiSprintAssignment[]): string =>
   assignments
     .filter((a) => a.sprintIds.length > 0)
@@ -60,52 +36,126 @@ const TimeSpentContent = () => {
     searchParamsRef.current = searchParams;
   });
 
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ connected: false });
 
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
-    connected: false,
-  });
-
-  const {
-    projectKey,
-    sidebarCollapsed,
-    setSidebarCollapsed,
-  } = useAppState();
+  const { projectKey, sidebarCollapsed, setSidebarCollapsed } = useAppState();
 
   const { data, isLoading, error, generate, clear } = useTimeSpentData();
 
-  // Selected initiative and epic for drill-down
   const [selectedInitiative, setSelectedInitiative] = useState<string | null>(null);
   const [selectedEpic, setSelectedEpic] = useState<string | null>(null);
 
-  // Parse board ID from URL
   const boardParam = searchParams.get(QUERY_PARAM_KEYS.BOARD);
   const boardId = boardParam ? parseInt(boardParam, 10) || undefined : undefined;
 
-  // Parse PI labels from URL (Time Spent has its own dedicated params)
+  // PI labels use Time Spent's dedicated URL param
   const piLabelsParam = searchParams.get(QUERY_PARAM_KEYS.TS_PI_LABELS);
-  const piLabels = piLabelsParam ? piLabelsParam.split(',').filter(Boolean) : [];
+  const piLabels = useMemo(
+    () => piLabelsParam?.split(',').filter(Boolean) ?? [],
+    [piLabelsParam]
+  );
 
-  // Parse PI sprints from URL
-  const piSprintsParam = searchParams.get(QUERY_PARAM_KEYS.TS_PI_SPRINTS);
-  const piSprints = parsePiSprints(piSprintsParam);
-  const piSprintsKey = piSprintsParam ?? '';
+  // ── PI sprint state — loaded from Jira, not URL ───────────────────
 
-  // Has at least one sprint assigned
+  const [piSprints, setPiSprints] = useState<PiSprintAssignment[]>([]);
+  // undefined = not yet loaded, true = story exists in Jira, false = story doesn't exist
+  const [piSprintsExistInJira, setPiSprintsExistInJira] = useState<Record<string, boolean | undefined>>({});
+  const [isSavingPiSprints, setIsSavingPiSprints] = useState<Record<string, boolean>>({});
+
+  const loadedPisRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!projectKey) {
+      setPiSprints([]);
+      setPiSprintsExistInJira({});
+      loadedPisRef.current = new Set();
+      return;
+    }
+
+    // Clean up state for PIs removed from the selection
+    const removedPis = [...loadedPisRef.current]
+      .filter((k) => k.startsWith(`${projectKey}:`))
+      .map((k) => k.slice(projectKey.length + 1))
+      .filter((pi) => !piLabels.includes(pi));
+
+    if (removedPis.length > 0) {
+      for (const pi of removedPis) loadedPisRef.current.delete(`${projectKey}:${pi}`);
+      setPiSprints((prev) => prev.filter((a) => piLabels.includes(a.piLabel)));
+      setPiSprintsExistInJira((prev) => {
+        const next = { ...prev };
+        for (const pi of removedPis) delete next[pi];
+        return next;
+      });
+    }
+
+    // Load only newly added PIs
+    const newPis = piLabels.filter((pi) => !loadedPisRef.current.has(`${projectKey}:${pi}`));
+    if (newPis.length === 0) return;
+
+    let cancelled = false;
+
+    Promise.all(
+      newPis.map(async (pi) => {
+        try {
+          const params = new URLSearchParams({ projectKey, pi });
+          const res = await fetch(`/api/capacity/pi-sprints?${params}`);
+          const json = await res.json();
+          if (json.data) {
+            const ids = (json.data as string).split(',').map(Number).filter(Boolean);
+            return { pi, sprintIds: ids, exists: true };
+          }
+        } catch { /* fall through */ }
+        return { pi, sprintIds: [] as number[], exists: false };
+      })
+    ).then((results) => {
+      if (cancelled) return;
+      for (const r of results) loadedPisRef.current.add(`${projectKey}:${r.pi}`);
+
+      setPiSprints((prev) => {
+        const next = [...prev];
+        for (const r of results) {
+          if (r.sprintIds.length === 0) continue;
+          const idx = next.findIndex((a) => a.piLabel === r.pi);
+          if (idx >= 0) next[idx] = { piLabel: r.pi, sprintIds: r.sprintIds };
+          else next.push({ piLabel: r.pi, sprintIds: r.sprintIds });
+        }
+        return next;
+      });
+
+      setPiSprintsExistInJira((prev) => {
+        const next = { ...prev };
+        for (const r of results) next[r.pi] = r.exists;
+        return next;
+      });
+    });
+
+    return () => { cancelled = true; };
+  }, [projectKey, piLabels]);
+
+  const handleSavePiSprints = useCallback(async (piLabel: string) => {
+    if (!projectKey) return;
+    setIsSavingPiSprints((prev) => ({ ...prev, [piLabel]: true }));
+    try {
+      const assignment = piSprints.find((a) => a.piLabel === piLabel);
+      const sprintIds = assignment?.sprintIds ?? [];
+      const res = await fetch('/api/capacity/pi-sprints', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectKey, pi: piLabel, sprintIds }),
+      });
+      if (res.ok) {
+        setPiSprintsExistInJira((prev) => ({ ...prev, [piLabel]: true }));
+      }
+    } catch { /* ignore */ }
+    finally {
+      setIsSavingPiSprints((prev) => ({ ...prev, [piLabel]: false }));
+    }
+  }, [projectKey, piSprints]);
+
+  const piSprintsKey = useMemo(() => serializePiSprints(piSprints), [piSprints]);
+
   const hasSprintsAssigned = piSprints.some((ps) => ps.sprintIds.length > 0);
 
-  // URL update helper
-  const updateUrl = useCallback((key: string, value: string | null) => {
-    const params = new URLSearchParams(searchParamsRef.current.toString());
-    if (value) {
-      params.set(key, value);
-    } else {
-      params.delete(key);
-    }
-    const newUrl = params.toString() ? `?${params.toString()}` : '/time-spent';
-    router.push(newUrl, { scroll: false });
-  }, [router]);
-
-  // Handler: PI labels changed
   const handlePILabelsChange = useCallback((labels: string[]) => {
     const params = new URLSearchParams(searchParamsRef.current.toString());
 
@@ -115,28 +165,17 @@ const TimeSpentContent = () => {
       params.delete(QUERY_PARAM_KEYS.TS_PI_LABELS);
     }
 
-    // Remove piSprints entries for PIs no longer selected
-    const currentPiSprints = parsePiSprints(params.get(QUERY_PARAM_KEYS.TS_PI_SPRINTS));
-    const filteredPiSprints = currentPiSprints.filter((ps) =>
-      labels.includes(ps.piLabel)
-    );
-    if (filteredPiSprints.length > 0) {
-      params.set(QUERY_PARAM_KEYS.TS_PI_SPRINTS, serializePiSprints(filteredPiSprints));
-    } else {
-      params.delete(QUERY_PARAM_KEYS.TS_PI_SPRINTS);
-    }
+    // Remove old URL-based piSprints if present (no longer used)
+    params.delete(QUERY_PARAM_KEYS.TS_PI_SPRINTS);
 
     const newUrl = params.toString() ? `?${params.toString()}` : '/time-spent';
     router.push(newUrl, { scroll: false });
   }, [router]);
 
-  // Handler: PI sprints changed
   const handlePiSprintsChange = useCallback((assignments: PiSprintAssignment[]) => {
-    const serialized = serializePiSprints(assignments);
-    updateUrl(QUERY_PARAM_KEYS.TS_PI_SPRINTS, serialized || null);
-  }, [updateUrl]);
+    setPiSprints(assignments);
+  }, []);
 
-  // Handler: initiative selection (clear epic when initiative changes)
   const handleInitiativeSelect = useCallback((key: string) => {
     setSelectedInitiative((prev) => {
       const next = prev === key ? null : key;
@@ -145,12 +184,10 @@ const TimeSpentContent = () => {
     });
   }, []);
 
-  // Handler: epic selection
   const handleEpicSelect = useCallback((key: string) => {
     setSelectedEpic((prev) => (prev === key ? null : key));
   }, []);
 
-  // Clear selections when data refreshes
   useEffect(() => {
     if (data) {
       setSelectedInitiative(null);
@@ -158,14 +195,12 @@ const TimeSpentContent = () => {
     }
   }, [data]);
 
-  // Track previous values for change detection
   const prevValuesRef = useRef<{
     projectKey: string | undefined;
     piSprintsKey: string;
     boardId: number | undefined;
   } | null>(null);
 
-  // Connection check
   useEffect(() => {
     const checkConnection = async () => {
       try {
@@ -182,14 +217,11 @@ const TimeSpentContent = () => {
   // Auto-generate when inputs change
   useEffect(() => {
     if (!projectKey || !hasSprintsAssigned) {
-      if (data && (!projectKey || !hasSprintsAssigned)) {
-        clear();
-      }
+      if (data && (!projectKey || !hasSprintsAssigned)) clear();
       return;
     }
 
     const currentValues = { projectKey, piSprintsKey, boardId };
-
     const prev = prevValuesRef.current;
     const hasChanged =
       !prev ||
@@ -205,7 +237,6 @@ const TimeSpentContent = () => {
     }
   }, [projectKey, piSprints, piSprintsKey, boardId, hasSprintsAssigned, generate, clear, data]);
 
-  // Handle refresh
   const handleRefresh = useCallback(() => {
     if (!projectKey || !hasSprintsAssigned || isLoading) return;
     clear();
@@ -213,22 +244,9 @@ const TimeSpentContent = () => {
   }, [projectKey, piSprints, boardId, hasSprintsAssigned, isLoading, clear, generate]);
 
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100vh',
-        overflow: 'hidden',
-      }}
-    >
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <Header connectionStatus={connectionStatus} />
-      <Box
-        sx={{
-          display: 'flex',
-          flexGrow: 1,
-          overflow: 'hidden',
-        }}
-      >
+      <Box sx={{ display: 'flex', flexGrow: 1, overflow: 'hidden' }}>
         <Sidebar collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed}>
           <TimeSpentSidebarContent
             projectKey={projectKey}
@@ -236,16 +254,15 @@ const TimeSpentContent = () => {
             boardId={boardId}
             piSprints={piSprints}
             isLoading={isLoading}
+            piSprintsExistInJira={piSprintsExistInJira}
+            onSavePiSprints={handleSavePiSprints}
+            isSavingPiSprints={isSavingPiSprints}
             onPILabelsChange={handlePILabelsChange}
             onPiSprintsChange={handlePiSprintsChange}
           />
         </Sidebar>
         <MainContent>
-          {error && (
-            <Alert severity="error" sx={{ m: 2 }}>
-              {error}
-            </Alert>
-          )}
+          {error && <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>}
           {data ? (
             <Box sx={{ overflow: 'auto', height: '100%', p: 1 }}>
               <TimeSpentCharts
@@ -257,22 +274,11 @@ const TimeSpentContent = () => {
               />
             </Box>
           ) : (
-            <Box
-              sx={{
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'text.secondary',
-              }}
-            >
+            <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'text.secondary' }}>
               {isLoading ? (
                 <>
                   <CircularProgress sx={{ mb: 2 }} />
-                  <Typography variant="h6" gutterBottom>
-                    Loading Time Spent Data...
-                  </Typography>
+                  <Typography variant="h6" gutterBottom>Loading Time Spent Data...</Typography>
                   <Typography variant="body2">
                     This may take a moment while fetching epic and story details
                   </Typography>
@@ -304,7 +310,6 @@ const TimeSpentContent = () => {
         </MainContent>
       </Box>
 
-      {/* Refresh FAB */}
       <Tooltip title="Refresh data from JIRA">
         <span>
           <Fab
@@ -312,11 +317,7 @@ const TimeSpentContent = () => {
             aria-label="refresh"
             onClick={handleRefresh}
             disabled={isLoading || !projectKey || !hasSprintsAssigned}
-            sx={{
-              position: 'fixed',
-              bottom: 24,
-              right: 24,
-            }}
+            sx={{ position: 'fixed', bottom: 24, right: 24 }}
           >
             {isLoading ? <CircularProgress size={24} color="inherit" /> : <RefreshIcon />}
           </Fab>

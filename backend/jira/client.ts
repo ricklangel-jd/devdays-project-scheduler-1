@@ -8,6 +8,22 @@ import type {
   JiraStatusResponse,
 } from '@/shared/types';
 
+export interface ChangelogItem {
+  field: string;
+  fieldtype: string;
+  fieldId?: string;
+  from: string | null;
+  fromString: string | null;
+  to: string | null;
+  toString: string | null;
+}
+
+export interface ChangelogEntry {
+  id: string;
+  created: string; // ISO datetime with timezone offset, e.g. "2024-01-17T10:30:00.000-0600"
+  items: ChangelogItem[];
+}
+
 /**
  * Response from the Greenhopper sprint report API.
  * Used to determine which issues were added mid-sprint vs. present at sprint start.
@@ -33,6 +49,7 @@ interface SprintReportIssue {
       value?: number;
     };
   };
+  typeName?: string; // e.g. "Story", "Task", "Service Ticket"
 }
 
 /**
@@ -420,6 +437,32 @@ export class JiraClient {
         error: error instanceof Error ? error.message : 'Unknown error',
       };
     }
+  };
+
+  /**
+   * Get the full changelog for an issue, auto-paginating through all entries.
+   * Entries are returned in ascending creation order (oldest first).
+   */
+  getIssueChangelog = async (issueKey: string): Promise<ChangelogEntry[]> => {
+    const all: ChangelogEntry[] = [];
+    let startAt = 0;
+    const maxResults = 100;
+
+    while (true) {
+      const response = await this.fetch<{
+        startAt: number;
+        maxResults: number;
+        total: number;
+        isLast: boolean;
+        values: ChangelogEntry[];
+      }>(`/rest/api/3/issue/${issueKey}/changelog?startAt=${startAt}&maxResults=${maxResults}`);
+
+      all.push(...response.values);
+      if (response.isLast || response.values.length === 0) break;
+      startAt += response.values.length;
+    }
+
+    return all;
   };
 
   /**

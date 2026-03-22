@@ -542,12 +542,11 @@ const PiStatusContent = () => {
             sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
             onClick={() => setControlsOpen((prev) => !prev)}
           >
-            <Typography variant="subtitle2" fontWeight={700}>
-              Controls
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               {selectedPi && !controlsOpen && (
-                <Chip label={selectedPi} size="small" color="primary" variant="outlined" sx={{ ml: 1 }} />
+                <Chip label={selectedPi} size="small" color="primary" variant="outlined" />
               )}
-            </Typography>
+            </Box>
             <IconButton size="small">
               {controlsOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
             </IconButton>

@@ -106,7 +106,7 @@ const SprintPlanningSidebarContent = ({
     return () => { cancelled = true; };
   }, [boardId, projectKey]);
 
-  // Compute which sprints to show: active sprint ± 5 sprints by start date
+  // Compute which sprints to show: active sprint ± 10 sprints by start date
   const visibleSprints = useMemo(() => {
     if (allSprints.length === 0) return [];
 
@@ -117,12 +117,12 @@ const SprintPlanningSidebarContent = ({
     const activeIdx = sorted.findIndex((s) => s.state === 'active');
 
     if (activeIdx < 0) {
-      // No active sprint — show last 5 + first 5 future, or all if fewer
-      return sorted.slice(Math.max(0, sorted.length - 10));
+      // No active sprint — show last 10 + first 10 future, or all if fewer
+      return sorted.slice(Math.max(0, sorted.length - 20));
     }
 
-    const start = Math.max(0, activeIdx - 5);
-    const end = Math.min(sorted.length, activeIdx + 6); // +6 because slice is exclusive
+    const start = Math.max(0, activeIdx - 10);
+    const end = Math.min(sorted.length, activeIdx + 11); // +11 because slice is exclusive
     return sorted.slice(start, end);
   }, [allSprints]);
 

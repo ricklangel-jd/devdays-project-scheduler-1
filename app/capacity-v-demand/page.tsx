@@ -15,70 +15,21 @@ import { CapacityDemandChart, EpicStoriesGrid } from '@/frontend/components/char
 import type { EpicSelection } from '@/frontend/components/chart';
 import { useAppState, useEpicStoriesData } from '@/frontend/hooks';
 import { useCapacityDemandData } from '@/frontend/hooks/useCapacityDemandData';
+import type { SprintCapacityInfo } from '@/frontend/hooks/useCapacityDemandData';
 import { QUERY_PARAM_KEYS } from '@/shared/types';
-import type { PiSprintAssignment } from '@/shared/types';
+import type { JiraSprint, PiSprintAssignment } from '@/shared/types';
+import { deserializeCapacity, computeTotalCapacity } from '@/shared/lib/capacity';
 
 interface ConnectionStatus {
   connected: boolean;
   email?: string;
 }
 
-/**
- * Parse piSprints URL param: "PI1_2025:101.102.103,PI2_2025:104.105.106"
- */
-const parsePiSprints = (value: string | null): PiSprintAssignment[] => {
-  if (!value) return [];
-  return value
-    .split(',')
-    .map((entry) => {
-      const colonIdx = entry.indexOf(':');
-      if (colonIdx < 0) return { piLabel: entry, sprintIds: [] };
-      const piLabel = entry.slice(0, colonIdx);
-      const ids = entry
-        .slice(colonIdx + 1)
-        .split('.')
-        .map(Number)
-        .filter((n) => !isNaN(n));
-      return { piLabel, sprintIds: ids };
-    })
-    .filter((a) => a.piLabel && a.sprintIds.length > 0);
-};
-
-/**
- * Serialize piSprints to URL param format
- */
 const serializePiSprints = (assignments: PiSprintAssignment[]): string =>
   assignments
     .filter((a) => a.sprintIds.length > 0)
     .map((a) => `${a.piLabel}:${a.sprintIds.join('.')}`)
     .join(',');
-
-/**
- * Parse piDaysOff URL param: "PI1_2025:5,PI2_2025:10"
- */
-const parsePiDaysOff = (value: string | null): Record<string, number> => {
-  if (!value) return {};
-  const result: Record<string, number> = {};
-  for (const entry of value.split(',')) {
-    const colonIdx = entry.indexOf(':');
-    if (colonIdx < 0) continue;
-    const piLabel = entry.slice(0, colonIdx);
-    const days = parseInt(entry.slice(colonIdx + 1), 10);
-    if (piLabel && !isNaN(days) && days > 0) {
-      result[piLabel] = days;
-    }
-  }
-  return result;
-};
-
-/**
- * Serialize piDaysOff to URL param format
- */
-const serializePiDaysOff = (daysOff: Record<string, number>): string | null => {
-  const entries = Object.entries(daysOff).filter(([, days]) => days > 0);
-  if (entries.length === 0) return null;
-  return entries.map(([piLabel, days]) => `${piLabel}:${days}`).join(',');
-};
 
 const CapacityDemandContent = () => {
   const router = useRouter();
@@ -88,20 +39,12 @@ const CapacityDemandContent = () => {
     searchParamsRef.current = searchParams;
   });
 
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ connected: false });
 
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
-    connected: false,
-  });
-
-  const {
-    projectKey,
-    sidebarCollapsed,
-    setSidebarCollapsed,
-  } = useAppState();
+  const { projectKey, sidebarCollapsed, setSidebarCollapsed } = useAppState();
 
   const { data, isLoading, error, generate, clear } = useCapacityDemandData();
 
-  // Epic selection state (lifted from chart for stories grid)
   const [epicSelection, setEpicSelection] = useState<EpicSelection | null>(null);
 
   // Parse PI labels from URL
@@ -111,65 +54,218 @@ const CapacityDemandContent = () => {
     [piLabelsParam]
   );
 
-  // Parse developer count from URL
-  const devsParam = searchParams.get(QUERY_PARAM_KEYS.DEVS);
-  const developerCount = devsParam ? parseInt(devsParam, 10) || 5 : 5;
-
-  // Parse support percent from URL (default 10)
-  const supportPctParam = searchParams.get(QUERY_PARAM_KEYS.SUPPORT_PCT);
-  const supportPercent = supportPctParam ? parseInt(supportPctParam, 10) || 10 : 10;
-
-  // Parse board ID from URL
   const boardParam = searchParams.get(QUERY_PARAM_KEYS.BOARD);
   const boardId = boardParam ? parseInt(boardParam, 10) || undefined : undefined;
 
-  // Parse piSprints from URL
-  const piSprintsParam = searchParams.get(QUERY_PARAM_KEYS.PI_SPRINTS);
-  const piSprints = useMemo(
-    () => parsePiSprints(piSprintsParam),
-    [piSprintsParam]
-  );
+  // ── All sprints — loaded from Jira for capacity lookup ────────────
 
-  // Serialized piSprints key for change detection
-  const piSprintsKey = useMemo(
-    () => serializePiSprints(piSprints),
-    [piSprints]
-  );
+  const [allSprints, setAllSprints] = useState<JiraSprint[]>([]);
 
-  // Parse piDaysOff from URL
-  const piDaysOffParam = searchParams.get(QUERY_PARAM_KEYS.PI_DAYS_OFF);
-  const piDaysOff = useMemo(
-    () => parsePiDaysOff(piDaysOffParam),
-    [piDaysOffParam]
-  );
+  useEffect(() => {
+    if (!boardId) { setAllSprints([]); return; }
+    let cancelled = false;
+    const fetchSprints = async () => {
+      try {
+        const params = new URLSearchParams({ boardId: boardId.toString() });
+        if (projectKey) params.set('projectKey', projectKey);
+        const res = await fetch(`/api/sprints?${params}`);
+        const json = await res.json();
+        if (!cancelled && !json.error) {
+          setAllSprints((json.sprints ?? []).filter((s: JiraSprint) => s.startDate && s.endDate));
+        }
+      } catch { /* ignore */ }
+    };
+    fetchSprints();
+    return () => { cancelled = true; };
+  }, [boardId, projectKey]);
 
-  // Derive sprint IDs for stories grid filtering
-  // Bar clicks filter by the PI's sprints; legend clicks show all stories
+  // ── Per-sprint capacities from Jira ──────────────────────────────
+
+  const [piCapacities, setPiCapacities] = useState<Record<string, SprintCapacityInfo[]>>({});
+
+  // ── PI sprint state — loaded from Jira, not URL ───────────────────
+
+  const [piSprints, setPiSprints] = useState<PiSprintAssignment[]>([]);
+  // undefined = not yet loaded, true = story exists in Jira, false = story doesn't exist
+  const [piSprintsExistInJira, setPiSprintsExistInJira] = useState<Record<string, boolean | undefined>>({});
+  const [isSavingPiSprints, setIsSavingPiSprints] = useState<Record<string, boolean>>({});
+
+  // Track which project+PI combos have been loaded to allow incremental loading
+  const loadedPisRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!projectKey) {
+      setPiSprints([]);
+      setPiSprintsExistInJira({});
+      loadedPisRef.current = new Set();
+      return;
+    }
+
+    // Clean up state for PIs that were removed from the selection
+    const removedPis = [...loadedPisRef.current]
+      .filter((k) => k.startsWith(`${projectKey}:`))
+      .map((k) => k.slice(projectKey.length + 1))
+      .filter((pi) => !piLabels.includes(pi));
+
+    if (removedPis.length > 0) {
+      for (const pi of removedPis) loadedPisRef.current.delete(`${projectKey}:${pi}`);
+      setPiSprints((prev) => prev.filter((a) => piLabels.includes(a.piLabel)));
+      setPiSprintsExistInJira((prev) => {
+        const next = { ...prev };
+        for (const pi of removedPis) delete next[pi];
+        return next;
+      });
+    }
+
+    // Load only newly added PIs
+    const newPis = piLabels.filter((pi) => !loadedPisRef.current.has(`${projectKey}:${pi}`));
+    if (newPis.length === 0) return;
+
+    let cancelled = false;
+
+    Promise.all(
+      newPis.map(async (pi) => {
+        try {
+          const params = new URLSearchParams({ projectKey, pi });
+          const res = await fetch(`/api/capacity/pi-sprints?${params}`);
+          const json = await res.json();
+          if (json.data) {
+            const ids = (json.data as string).split(',').map(Number).filter(Boolean);
+            return { pi, sprintIds: ids, exists: true };
+          }
+        } catch { /* fall through */ }
+        return { pi, sprintIds: [] as number[], exists: false };
+      })
+    ).then((results) => {
+      if (cancelled) return;
+      for (const r of results) loadedPisRef.current.add(`${projectKey}:${r.pi}`);
+
+      setPiSprints((prev) => {
+        const next = [...prev];
+        for (const r of results) {
+          if (r.sprintIds.length === 0) continue;
+          const idx = next.findIndex((a) => a.piLabel === r.pi);
+          if (idx >= 0) next[idx] = { piLabel: r.pi, sprintIds: r.sprintIds };
+          else next.push({ piLabel: r.pi, sprintIds: r.sprintIds });
+        }
+        return next;
+      });
+
+      setPiSprintsExistInJira((prev) => {
+        const next = { ...prev };
+        for (const r of results) next[r.pi] = r.exists;
+        return next;
+      });
+    });
+
+    return () => { cancelled = true; };
+  }, [projectKey, piLabels]);
+
+  const handleSavePiSprints = useCallback(async (piLabel: string) => {
+    if (!projectKey) return;
+    setIsSavingPiSprints((prev) => ({ ...prev, [piLabel]: true }));
+    try {
+      const assignment = piSprints.find((a) => a.piLabel === piLabel);
+      const sprintIds = assignment?.sprintIds ?? [];
+      const res = await fetch('/api/capacity/pi-sprints', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectKey, pi: piLabel, sprintIds }),
+      });
+      if (res.ok) {
+        setPiSprintsExistInJira((prev) => ({ ...prev, [piLabel]: true }));
+      }
+    } catch { /* ignore */ }
+    finally {
+      setIsSavingPiSprints((prev) => ({ ...prev, [piLabel]: false }));
+    }
+  }, [projectKey, piSprints]);
+
+  const piSprintsKey = useMemo(() => serializePiSprints(piSprints), [piSprints]);
+
+  // Load per-sprint Jira capacity whenever piSprints or allSprints change
+  useEffect(() => {
+    if (!projectKey || allSprints.length === 0) return;
+
+    const sprintMap = new Map<number, JiraSprint>();
+    for (const s of allSprints) sprintMap.set(s.id, s);
+
+    const sprintRequests: { pi: string; sprintId: number; sprintName: string }[] = [];
+    for (const assignment of piSprints) {
+      for (const sprintId of assignment.sprintIds) {
+        const sprint = sprintMap.get(sprintId);
+        if (sprint) {
+          sprintRequests.push({ pi: assignment.piLabel, sprintId, sprintName: sprint.name });
+        }
+      }
+    }
+
+    if (sprintRequests.length === 0) {
+      // Build placeholder entries for assigned sprints where names aren't loaded yet
+      const result: Record<string, SprintCapacityInfo[]> = {};
+      for (const assignment of piSprints) {
+        if (assignment.sprintIds.length > 0) {
+          result[assignment.piLabel] = assignment.sprintIds.map((id) => ({
+            sprintId: id,
+            sprintName: sprintMap.get(id)?.name ?? `Sprint ${id}`,
+            totalCapacity: null,
+          }));
+        }
+      }
+      setPiCapacities(result);
+      return;
+    }
+
+    let cancelled = false;
+
+    Promise.all(
+      sprintRequests.map(async ({ pi, sprintId, sprintName }) => {
+        try {
+          const params = new URLSearchParams({ projectKey, sprintId: sprintId.toString(), sprintName });
+          const res = await fetch(`/api/capacity/storage?${params}`);
+          const json = await res.json();
+          let totalCapacity: number | null = null;
+          if (json.data) {
+            const payload = deserializeCapacity(json.data);
+            if (payload) totalCapacity = computeTotalCapacity(payload.rows, payload.supportPct);
+          }
+          return { pi, sprintId, sprintName, totalCapacity };
+        } catch {
+          return { pi, sprintId, sprintName, totalCapacity: null as number | null };
+        }
+      })
+    ).then((results) => {
+      if (cancelled) return;
+      const result: Record<string, SprintCapacityInfo[]> = {};
+      for (const r of results) {
+        if (!result[r.pi]) result[r.pi] = [];
+        result[r.pi].push({ sprintId: r.sprintId, sprintName: r.sprintName, totalCapacity: r.totalCapacity });
+      }
+      // Preserve the sprint order from piSprints
+      for (const assignment of piSprints) {
+        if (result[assignment.piLabel]) {
+          result[assignment.piLabel].sort((a, b) =>
+            assignment.sprintIds.indexOf(a.sprintId) - assignment.sprintIds.indexOf(b.sprintId)
+          );
+        }
+      }
+      setPiCapacities(result);
+    });
+
+    return () => { cancelled = true; };
+  }, [projectKey, piSprints, piSprintsKey, allSprints]);
+
   const storiesSprintIds = useMemo(() => {
     if (!epicSelection || epicSelection.source !== 'bar' || !epicSelection.piLabel) return undefined;
     const piAssignment = piSprints.find((ps) => ps.piLabel === epicSelection.piLabel);
     return piAssignment?.sprintIds;
   }, [epicSelection, piSprints]);
 
-  // Fetch stories for selected epic
   const { stories, epicStatus, isLoading: storiesLoading } = useEpicStoriesData(
     epicSelection?.epicKey ?? null,
     storiesSprintIds
   );
 
-  // URL update helper
-  const updateUrl = useCallback((key: string, value: string | null) => {
-    const params = new URLSearchParams(searchParamsRef.current.toString());
-    if (value) {
-      params.set(key, value);
-    } else {
-      params.delete(key);
-    }
-    const newUrl = params.toString() ? `?${params.toString()}` : '/capacity-v-demand';
-    router.push(newUrl, { scroll: false });
-  }, [router]);
-
-  // Handler: PI labels changed → remove piSprints/piDaysOff entries for removed PIs
   const handlePILabelsChange = useCallback((labels: string[]) => {
     const params = new URLSearchParams(searchParamsRef.current.toString());
 
@@ -179,58 +275,18 @@ const CapacityDemandContent = () => {
       params.delete(QUERY_PARAM_KEYS.PI_LABELS);
     }
 
-    // Clean up piSprints: remove entries for PIs that are no longer selected
-    const currentPiSprints = parsePiSprints(params.get(QUERY_PARAM_KEYS.PI_SPRINTS));
-    const filteredPiSprints = currentPiSprints.filter((ps) =>
-      labels.includes(ps.piLabel)
-    );
-    if (filteredPiSprints.length > 0) {
-      params.set(QUERY_PARAM_KEYS.PI_SPRINTS, serializePiSprints(filteredPiSprints));
-    } else {
-      params.delete(QUERY_PARAM_KEYS.PI_SPRINTS);
-    }
-
-    // Clean up piDaysOff: remove entries for PIs that are no longer selected
-    const currentDaysOff = parsePiDaysOff(params.get(QUERY_PARAM_KEYS.PI_DAYS_OFF));
-    const filteredDaysOff: Record<string, number> = {};
-    for (const [piLabel, days] of Object.entries(currentDaysOff)) {
-      if (labels.includes(piLabel)) {
-        filteredDaysOff[piLabel] = days;
-      }
-    }
-    const serializedDaysOff = serializePiDaysOff(filteredDaysOff);
-    if (serializedDaysOff) {
-      params.set(QUERY_PARAM_KEYS.PI_DAYS_OFF, serializedDaysOff);
-    } else {
-      params.delete(QUERY_PARAM_KEYS.PI_DAYS_OFF);
-    }
+    // Remove old URL-based piSprints if present (no longer used)
+    params.delete(QUERY_PARAM_KEYS.PI_SPRINTS);
 
     const newUrl = params.toString() ? `?${params.toString()}` : '/capacity-v-demand';
     router.push(newUrl, { scroll: false });
   }, [router]);
 
-  // Handler: piSprints changed
   const handlePiSprintsChange = useCallback((assignments: PiSprintAssignment[]) => {
-    const value = assignments.some((a) => a.sprintIds.length > 0)
-      ? serializePiSprints(assignments)
-      : null;
-    updateUrl(QUERY_PARAM_KEYS.PI_SPRINTS, value);
-  }, [updateUrl]);
+    setPiSprints(assignments);
+  }, []);
 
-  const handleDeveloperCountChange = useCallback((count: number) => {
-    updateUrl(QUERY_PARAM_KEYS.DEVS, count.toString());
-  }, [updateUrl]);
-
-  const handleSupportPercentChange = useCallback((pct: number) => {
-    updateUrl(QUERY_PARAM_KEYS.SUPPORT_PCT, pct.toString());
-  }, [updateUrl]);
-
-  // Handler: piDaysOff changed
-  const handlePiDaysOffChange = useCallback((daysOff: Record<string, number>) => {
-    updateUrl(QUERY_PARAM_KEYS.PI_DAYS_OFF, serializePiDaysOff(daysOff));
-  }, [updateUrl]);
-
-  // Track previous values to detect changes
+  // Track previous values to detect changes for auto-generate
   const prevValuesRef = useRef<{
     projectKey: string;
     piLabels: string;
@@ -238,13 +294,12 @@ const CapacityDemandContent = () => {
     boardId: number | undefined;
   } | null>(null);
 
-  // Connection check
   useEffect(() => {
     const checkConnection = async () => {
       try {
         const response = await fetch('/api/auth/validate');
-        const data = await response.json();
-        setConnectionStatus({ connected: data.valid, email: data.email });
+        const d = await response.json();
+        setConnectionStatus({ connected: d.valid, email: d.email });
       } catch {
         setConnectionStatus({ connected: false });
       }
@@ -252,22 +307,14 @@ const CapacityDemandContent = () => {
     checkConnection();
   }, []);
 
-  // Auto-generate when prerequisites are met
+  // Auto-generate chart when prerequisites change
   useEffect(() => {
     if (!projectKey || piLabels.length === 0) {
-      if (data && (!projectKey || piLabels.length === 0)) {
-        clear();
-      }
+      if (data && (!projectKey || piLabels.length === 0)) clear();
       return;
     }
 
-    const currentValues = {
-      projectKey,
-      piLabels: piLabels.join(','),
-      piSprintsKey,
-      boardId,
-    };
-
+    const currentValues = { projectKey, piLabels: piLabels.join(','), piSprintsKey, boardId };
     const prev = prevValuesRef.current;
     const hasChanged =
       !prev ||
@@ -283,7 +330,6 @@ const CapacityDemandContent = () => {
     }
   }, [projectKey, piLabels, piSprints, piSprintsKey, boardId, generate, clear, data]);
 
-  // Handle refresh (force refetch)
   const handleRefresh = useCallback(() => {
     if (!projectKey || piLabels.length === 0 || isLoading) return;
     clear();
@@ -291,52 +337,32 @@ const CapacityDemandContent = () => {
   }, [projectKey, piLabels, piSprints, boardId, isLoading, clear, generate]);
 
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100vh',
-        overflow: 'hidden',
-      }}
-    >
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <Header connectionStatus={connectionStatus} />
-      <Box
-        sx={{
-          display: 'flex',
-          flexGrow: 1,
-          overflow: 'hidden',
-        }}
-      >
+      <Box sx={{ display: 'flex', flexGrow: 1, overflow: 'hidden' }}>
         <Sidebar collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed}>
           <CapacityDemandSidebarContent
             projectKey={projectKey}
             piLabels={piLabels}
             boardId={boardId}
             piSprints={piSprints}
-            developerCount={developerCount}
-            supportPercent={supportPercent}
-            piDaysOff={piDaysOff}
             isGenerating={isLoading}
+            showCapacityControls={false}
+            sprintsRequired
+            piSprintsExistInJira={piSprintsExistInJira}
+            onSavePiSprints={handleSavePiSprints}
+            isSavingPiSprints={isSavingPiSprints}
             onPILabelsChange={handlePILabelsChange}
             onPiSprintsChange={handlePiSprintsChange}
-            onDeveloperCountChange={handleDeveloperCountChange}
-            onSupportPercentChange={handleSupportPercentChange}
-            onPiDaysOffChange={handlePiDaysOffChange}
           />
         </Sidebar>
         <MainContent>
-          {error && (
-            <Alert severity="error" sx={{ m: 2 }}>
-              {error}
-            </Alert>
-          )}
+          {error && <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>}
           {data ? (
             <Box sx={{ overflow: 'auto', height: '100%', p: 1 }}>
               <CapacityDemandChart
                 data={data}
-                developerCount={developerCount}
-                supportPercent={supportPercent}
-                piDaysOff={piDaysOff}
+                piCapacities={piCapacities}
                 selectedEpicKey={epicSelection?.epicKey ?? null}
                 onEpicSelect={setEpicSelection}
               />
@@ -348,34 +374,19 @@ const CapacityDemandContent = () => {
               />
             </Box>
           ) : (
-            <Box
-              sx={{
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'text.secondary',
-              }}
-            >
+            <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'text.secondary' }}>
               {isLoading ? (
                 <>
                   <CircularProgress sx={{ mb: 2 }} />
-                  <Typography variant="h6" gutterBottom>
-                    Loading PI Data...
-                  </Typography>
+                  <Typography variant="h6" gutterBottom>Loading PI Data...</Typography>
                 </>
               ) : (
                 <>
                   <Typography variant="h6" gutterBottom>
-                    {!projectKey
-                      ? 'Select a Project'
-                      : 'Select Planning Increments'}
+                    {!projectKey ? 'Select a Project' : 'Select Planning Increments'}
                   </Typography>
                   <Typography variant="body2">
-                    {!projectKey
-                      ? 'Choose a JIRA project to analyze'
-                      : 'Choose one or more PI labels to view capacity vs demand'}
+                    {!projectKey ? 'Choose a JIRA project to analyze' : 'Choose one or more PI labels to view capacity vs demand'}
                   </Typography>
                 </>
               )}
@@ -384,7 +395,6 @@ const CapacityDemandContent = () => {
         </MainContent>
       </Box>
 
-      {/* Refresh FAB */}
       <Tooltip title="Refresh data from JIRA">
         <span>
           <Fab
@@ -392,11 +402,7 @@ const CapacityDemandContent = () => {
             aria-label="refresh"
             onClick={handleRefresh}
             disabled={isLoading || !projectKey || piLabels.length === 0}
-            sx={{
-              position: 'fixed',
-              bottom: 24,
-              right: 24,
-            }}
+            sx={{ position: 'fixed', bottom: 24, right: 24 }}
           >
             {isLoading ? <CircularProgress size={24} color="inherit" /> : <RefreshIcon />}
           </Fab>

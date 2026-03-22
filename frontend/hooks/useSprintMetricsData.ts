@@ -4,6 +4,12 @@ import { useState, useCallback, useRef } from 'react';
 
 // ── Types mirroring API response ──────────────────────────────────────
 
+export interface EngOutputRow {
+  name: string;
+  capacity: number;
+  resolvedPoints: number;
+}
+
 export interface SprintMetricsIssue {
   key: string;
   summary: string;
@@ -19,14 +25,18 @@ export interface SprintMetricsRow {
   startDate: string;
   endDate: string;
   day1Points: number;
+  day1AllPointed: boolean;
   resolvedPoints: number;
   lastDayPoints: number;
-  scopeChangePoints: number;
+  scopeChangeInPoints: number;
+  scopeChangeOutPoints: number;
   carryoverPoints: number;
+  carryoverAllPoints: number;
   serviceDeskHoursResolved: number;
   issues: SprintMetricsIssue[];
   jiraCapacity: number | null;
   jiraEngineerCount: number | null;
+  engineerOutputs: EngOutputRow[] | null;
 }
 
 export interface SprintMetricsGrid {

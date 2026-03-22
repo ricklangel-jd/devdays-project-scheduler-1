@@ -19,13 +19,17 @@ import Checkbox from '@mui/material/Checkbox';
 import TextField from '@mui/material/TextField';
 import InputAdornment from '@mui/material/InputAdornment';
 import Button from '@mui/material/Button';
+import Autocomplete from '@mui/material/Autocomplete';
 import SaveIcon from '@mui/icons-material/Save';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
+import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import { Header, Sidebar, MainContent } from '@/frontend/components';
 import SprintPlanningSidebarContent from '@/frontend/components/sidebar/SprintPlanningSidebarContent';
 import { useAppState } from '@/frontend/hooks';
 import { useCapacityData } from '@/frontend/hooks/useCapacityData';
 import { QUERY_PARAM_KEYS } from '@/shared/types';
+import type { JiraSprint } from '@/shared/types';
 import {
   serializeCapacity,
   deserializeCapacity,
@@ -36,6 +40,27 @@ import {
 } from '@/shared/lib/capacity';
 
 const DEFAULT_SUPPORT_PCT = 10;
+
+// PI options: PI1_YYYY through PI4_YYYY for 2025–2027
+const PI_OPTIONS = (() => {
+  const options: string[] = [];
+  for (let year = 2025; year <= 2027; year++) {
+    for (let q = 1; q <= 4; q++) {
+      options.push(`PI${q}_${year}`);
+    }
+  }
+  return options;
+})();
+
+const formatDateShort = (dateStr: string): string => {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return dateStr;
+  }
+};
 
 interface ConnectionStatus {
   connected: boolean;
@@ -197,21 +222,83 @@ const CapacityContent = () => {
   const sprintParam = searchParams.get(QUERY_PARAM_KEYS.CAP_SPRINT);
   const selectedSprintId = sprintParam ? parseInt(sprintParam, 10) || null : null;
 
+  const piParam = searchParams.get(QUERY_PARAM_KEYS.CAP_PI);
+  const selectedPi = piParam || null;
+
   const [engineerRows, setEngineerRows] = useState<EngineerRow[]>([]);
   const [supportPct, setSupportPct] = useState(DEFAULT_SUPPORT_PCT);
 
-  // JIRA save state
+  // Engineer capacity save state
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Track sprint name for display and JIRA story title
+  // Sprint name for display and JIRA story title
   const [selectedSprintName, setSelectedSprintName] = useState<string>('');
 
   // Guard against re-initializing for same board+sprint
   const initKeyRef = useRef<string>('');
 
-  // Load saved data from JIRA when engineers + sprint are known
+  // ── PI sprint selection state ─────────────────────────────────────
+
+  const [allSprints, setAllSprints] = useState<JiraSprint[]>([]);
+  const [sprintsLoading, setSprintsLoading] = useState(false);
+  const [selectedSprintIds, setSelectedSprintIds] = useState<number[]>([]);
+  const [isPiSaving, setIsPiSaving] = useState(false);
+  const [piSaveError, setPiSaveError] = useState<string | null>(null);
+  const [piSaveSuccess, setPiSaveSuccess] = useState(false);
+  const piInitKeyRef = useRef<string>('');
+
+  // Load sprints for board/project when they change
+  useEffect(() => {
+    if (!boardId) { setAllSprints([]); return; }
+    let cancelled = false;
+    const fetchSprints = async () => {
+      setSprintsLoading(true);
+      try {
+        const params = new URLSearchParams({ boardId: boardId.toString() });
+        if (projectKey) params.set('projectKey', projectKey);
+        const res = await fetch(`/api/sprints?${params}`);
+        const json = await res.json();
+        if (!cancelled) {
+          setAllSprints((json.sprints ?? []).filter((s: JiraSprint) => s.startDate && s.endDate));
+        }
+      } catch {
+        if (!cancelled) setAllSprints([]);
+      } finally {
+        if (!cancelled) setSprintsLoading(false);
+      }
+    };
+    fetchSprints();
+    return () => { cancelled = true; };
+  }, [boardId, projectKey]);
+
+  // Load saved PI sprints from Jira when projectKey or selectedPi changes
+  useEffect(() => {
+    if (!projectKey || !selectedPi) { setSelectedSprintIds([]); return; }
+    const key = `${projectKey}:${selectedPi}`;
+    if (key === piInitKeyRef.current) return;
+    piInitKeyRef.current = key;
+
+    const load = async () => {
+      try {
+        const params = new URLSearchParams({ projectKey, pi: selectedPi });
+        const res = await fetch(`/api/capacity/pi-sprints?${params}`);
+        const json = await res.json();
+        if (json.data) {
+          const ids = (json.data as string).split(',').map(Number).filter(Boolean);
+          setSelectedSprintIds(ids);
+        } else {
+          setSelectedSprintIds([]);
+        }
+      } catch {
+        setSelectedSprintIds([]);
+      }
+    };
+    load();
+  }, [projectKey, selectedPi]);
+
+  // Load saved engineer capacity from Jira when engineers + sprint are known
   useEffect(() => {
     if (!data || !boardId || !selectedSprintId || !projectKey || !selectedSprintName) {
       setEngineerRows([]);
@@ -229,7 +316,6 @@ const CapacityContent = () => {
       capacityPct: DEFAULT_CAPACITY_PCT,
     }));
 
-    // Load from JIRA storage
     const loadFromJira = async () => {
       try {
         const params = new URLSearchParams({
@@ -259,7 +345,7 @@ const CapacityContent = () => {
     loadFromJira();
   }, [data, boardId, selectedSprintId, projectKey, selectedSprintName]);
 
-  // Save to JIRA
+  // Save engineer capacity to Jira
   const handleSave = useCallback(async () => {
     if (!projectKey || !selectedSprintId || engineerRows.length === 0) return;
     setIsSaving(true);
@@ -287,6 +373,29 @@ const CapacityContent = () => {
     }
   }, [projectKey, selectedSprintId, selectedSprintName, engineerRows, supportPct]);
 
+  // Save PI sprint selections to Jira
+  const handleSavePiSprints = useCallback(async () => {
+    if (!projectKey || !selectedPi) return;
+    setIsPiSaving(true);
+    setPiSaveError(null);
+    setPiSaveSuccess(false);
+    try {
+      const res = await fetch('/api/capacity/pi-sprints', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectKey, pi: selectedPi, sprintIds: selectedSprintIds }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Save failed');
+      setPiSaveSuccess(true);
+      setTimeout(() => setPiSaveSuccess(false), 3000);
+    } catch (err) {
+      setPiSaveError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setIsPiSaving(false);
+    }
+  }, [projectKey, selectedPi, selectedSprintIds]);
+
   // Clear + reload when board changes
   const prevBoardRef = useRef<number | undefined>(undefined);
   useEffect(() => {
@@ -302,6 +411,15 @@ const CapacityContent = () => {
     params.set(QUERY_PARAM_KEYS.CAP_SPRINT, sprintId.toString());
     initKeyRef.current = '';
     setSelectedSprintName(sprintName);
+    router.push(`?${params.toString()}`, { scroll: false });
+  }, [router]);
+
+  const handlePiChange = useCallback((_: unknown, value: string | null) => {
+    const params = new URLSearchParams(searchParamsRef.current.toString());
+    if (value) params.set(QUERY_PARAM_KEYS.CAP_PI, value);
+    else params.delete(QUERY_PARAM_KEYS.CAP_PI);
+    piInitKeyRef.current = '';
+    setSelectedSprintIds([]);
     router.push(`?${params.toString()}`, { scroll: false });
   }, [router]);
 
@@ -339,6 +457,11 @@ const CapacityContent = () => {
     setEngineerRows((prev) => prev.map((r) => r.name === name ? { ...r, capacityPct: value } : r));
   }, []);
 
+  const selectedSprintsForPi = useMemo(
+    () => allSprints.filter((s) => selectedSprintIds.includes(s.id)),
+    [allSprints, selectedSprintIds]
+  );
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <Header connectionStatus={connectionStatus} />
@@ -355,20 +478,128 @@ const CapacityContent = () => {
 
         <MainContent>
           {error && <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>}
-          {saveError && <Alert severity="error" sx={{ mx: 2, mt: 1 }} onClose={() => setSaveError(null)}>{saveError}</Alert>}
-          {saveSuccess && <Alert severity="success" sx={{ mx: 2, mt: 1 }}>Saved to JIRA</Alert>}
 
           {data && engineerRows.length > 0 ? (
             <Box sx={{ overflow: 'auto', height: '100%', p: 2 }}>
-              <EngineerGrid
-                sprintName={selectedSprintName}
-                rows={engineerRows}
-                supportPct={supportPct}
-                onToggleTechLead={handleToggleTechLead}
-                onDaysOutChange={handleDaysOutChange}
-                onCapacityPctChange={handleCapacityPctChange}
-                onSupportPctChange={setSupportPct}
-              />
+              <Box sx={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
+
+                {/* Left: Engineer capacity */}
+                <Box sx={{ flexShrink: 0 }}>
+                  <EngineerGrid
+                    sprintName={selectedSprintName}
+                    rows={engineerRows}
+                    supportPct={supportPct}
+                    onToggleTechLead={handleToggleTechLead}
+                    onDaysOutChange={handleDaysOutChange}
+                    onCapacityPctChange={handleCapacityPctChange}
+                    onSupportPctChange={setSupportPct}
+                  />
+                  <Box sx={{ mt: 2 }}>
+                    <Button
+                      variant="contained"
+                      color="secondary"
+                      startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+                      onClick={handleSave}
+                      disabled={isSaving || engineerRows.length === 0 || !projectKey || !selectedSprintId}
+                    >
+                      Save
+                    </Button>
+                  </Box>
+                  {saveError && (
+                    <Alert severity="error" onClose={() => setSaveError(null)} sx={{ mt: 1, maxWidth: 680 }}>
+                      {saveError}
+                    </Alert>
+                  )}
+                  {saveSuccess && (
+                    <Alert severity="success" sx={{ mt: 1, maxWidth: 680 }}>Saved to JIRA</Alert>
+                  )}
+                </Box>
+
+                {/* Right: PI sprint selection */}
+                <Box sx={{ minWidth: 340 }}>
+                  <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600 }}>
+                    PI Sprint Selection
+                  </Typography>
+
+                  <Autocomplete
+                    options={PI_OPTIONS}
+                    value={selectedPi}
+                    onChange={handlePiChange}
+                    renderInput={(params) => (
+                      <TextField {...params} size="small" label="PI" placeholder="Select PI..." />
+                    )}
+                    sx={{ mb: 2 }}
+                    size="small"
+                    disabled={!projectKey}
+                  />
+
+                  {selectedPi && (
+                    <Box>
+                      {sprintsLoading ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                          <CircularProgress size={18} />
+                          <Typography variant="body2" color="text.secondary">Loading sprints...</Typography>
+                        </Box>
+                      ) : (
+                        <Autocomplete
+                          multiple
+                          disableCloseOnSelect
+                          size="small"
+                          options={allSprints}
+                          value={selectedSprintsForPi}
+                          getOptionLabel={(option) => option.name}
+                          isOptionEqualToValue={(option, value) => option.id === value.id}
+                          onChange={(_e, newValue) => setSelectedSprintIds(newValue.map((s) => s.id))}
+                          renderOption={(props, option, { selected }) => {
+                            const { key, ...rest } = props;
+                            return (
+                              <li key={key} {...rest}>
+                                <Checkbox
+                                  icon={<CheckBoxOutlineBlankIcon fontSize="small" />}
+                                  checkedIcon={<CheckBoxIcon fontSize="small" />}
+                                  sx={{ mr: 1 }}
+                                  checked={selected}
+                                />
+                                <Box>
+                                  <Typography variant="body2">{option.name}</Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {formatDateShort(option.startDate)} – {formatDateShort(option.endDate)}
+                                  </Typography>
+                                </Box>
+                              </li>
+                            );
+                          }}
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              placeholder={selectedSprintIds.length > 0 ? '' : 'Select sprints...'}
+                            />
+                          )}
+                          sx={{ mb: 2 }}
+                        />
+                      )}
+
+                      <Button
+                        variant="contained"
+                        startIcon={isPiSaving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+                        onClick={handleSavePiSprints}
+                        disabled={isPiSaving || !projectKey || !selectedPi}
+                      >
+                        Save
+                      </Button>
+                      {piSaveError && (
+                        <Alert severity="error" onClose={() => setPiSaveError(null)} sx={{ mt: 1 }}>
+                          {piSaveError}
+                        </Alert>
+                      )}
+                      {piSaveSuccess && (
+                        <Alert severity="success" sx={{ mt: 1 }}>Saved to JIRA</Alert>
+                      )}
+                    </Box>
+                  )}
+                </Box>
+
+              </Box>
             </Box>
           ) : (
             <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'text.secondary' }}>
@@ -391,21 +622,6 @@ const CapacityContent = () => {
           )}
         </MainContent>
       </Box>
-
-      {/* Save to JIRA FAB */}
-      <Tooltip title="Save to JIRA">
-        <span>
-          <Fab
-            color="secondary"
-            aria-label="save"
-            onClick={handleSave}
-            disabled={isSaving || engineerRows.length === 0 || !projectKey || !selectedSprintId}
-            sx={{ position: 'fixed', bottom: 24, right: 88 }}
-          >
-            {isSaving ? <CircularProgress size={24} color="inherit" /> : <SaveIcon />}
-          </Fab>
-        </span>
-      </Tooltip>
 
       <Tooltip title="Refresh engineers from JIRA">
         <span>

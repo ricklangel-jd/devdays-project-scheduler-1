@@ -3,6 +3,12 @@
 import { useState, useCallback, useRef } from 'react';
 import type { PiSprintAssignment } from '@/shared/types';
 
+export interface SprintCapacityInfo {
+  sprintId: number;
+  sprintName: string;
+  totalCapacity: number | null; // null = no saved capacity for this sprint
+}
+
 export interface EpicDemand {
   key: string;
   summary: string;

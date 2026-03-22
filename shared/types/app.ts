@@ -61,6 +61,7 @@ export const QUERY_PARAM_KEYS = {
   PS_PI_SPRINTS: 'psSprints',
   SP_SPRINT: 'spSprint',
   CAP_SPRINT: 'capSprint',
+  CAP_PI: 'capPi',
 } as const;
 
 /**

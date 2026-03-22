@@ -190,7 +190,7 @@ const Header = ({ connectionStatus }: HeaderProps) => {
     <AppBar position="static" color="default" elevation={1}>
       <Toolbar>
         <Typography variant="h6" component="h1" sx={{ mr: 2 }}>
-          DevDays
+          {activePageLabel ?? 'DevDays'}
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexGrow: 1 }}>
           {NAV_MENUS.map((menu) => {
@@ -253,15 +253,6 @@ const Header = ({ connectionStatus }: HeaderProps) => {
             );
           })}
 
-          {/* Show active page name */}
-          {activePageLabel && (
-            <Typography
-              variant="body2"
-              sx={{ ml: 1, color: 'text.secondary', fontStyle: 'italic' }}
-            >
-              {activePageLabel}
-            </Typography>
-          )}
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: 2 }}>
           <Box sx={{ width: 250 }}>
