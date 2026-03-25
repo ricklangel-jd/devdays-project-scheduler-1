@@ -53,6 +53,7 @@ const PARAMS_TO_CLEAR_ON_BOARD_CHANGE: string[] = [
   QUERY_PARAM_KEYS.TS_PI_SPRINTS,
   QUERY_PARAM_KEYS.SP_SPRINT,
   QUERY_PARAM_KEYS.CAP_SPRINT,
+  QUERY_PARAM_KEYS.PA_SPRINT,
 ];
 
 // Navigation menu structure
@@ -76,6 +77,7 @@ const NAV_MENUS = [
       { label: 'Time Spent', path: '/time-spent' },
       { label: 'Sprint Metrics', path: '/sprint-metrics' },
       { label: 'PI Status', path: '/pi-status' },
+      { label: 'Pointing Accuracy', path: '/pointing-accuracy' },
     ],
   },
 ] as const;
