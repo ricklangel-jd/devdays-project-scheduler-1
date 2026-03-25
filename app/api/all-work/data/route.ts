@@ -123,10 +123,8 @@ export const POST = async (request: NextRequest) => {
     // If a board is selected, fetch all sprint IDs for that board to filter stories
     let boardSprintIds: Set<number> | undefined;
     if (boardId) {
-      console.log(`[AllWork] Board ${boardId} selected — fetching board sprints for filtering`);
       const boardSprints = await client.getSprints(undefined, boardId);
       boardSprintIds = new Set(boardSprints.map((s) => s.id));
-      console.log(`[AllWork] Board has ${boardSprintIds.size} sprints`);
     }
 
     // Phase 1: Build sprint metadata maps
@@ -144,7 +142,6 @@ export const POST = async (request: NextRequest) => {
     // Fetch sprint details for start dates (used for multi-sprint dedup)
     const sprintStartDateMap = new Map<number, string>(); // sprintId → ISO start date
     if (allSprintIds.size > 0) {
-      console.log(`[AllWork] Fetching ${allSprintIds.size} sprint details for deduplication`);
       const sprintDetails = await client.getSprintsByIds(Array.from(allSprintIds));
       for (const sprint of sprintDetails) {
         sprintStartDateMap.set(sprint.id, sprint.startDate ?? '');
@@ -159,10 +156,8 @@ export const POST = async (request: NextRequest) => {
 
       const sprintIdsList = ps.sprintIds.join(',');
       const jql = `project = ${projectKey} AND sprint in (${sprintIdsList}) AND issuetype in (Story, "Service Ticket") AND ${EXCLUDE_MAINFRAME} AND status != "Canceled" ORDER BY key ASC`;
-      console.log(`[AllWork] PI "${ps.piLabel}": ${jql}`);
 
       const response = await client.searchAllIssues(jql, [STORY_POINT_ESTIMATE_FIELD]);
-      console.log(`[AllWork] PI "${ps.piLabel}": found ${response.issues.length} issues`);
 
       const tickets: JiraTicket[] = [];
       for (const issue of response.issues) {
@@ -215,8 +210,6 @@ export const POST = async (request: NextRequest) => {
       }
     }
 
-    console.log(`[AllWork] Sprint dedup: ${ticketOwnerPi.size} tickets assigned to PIs`);
-
     // Phase 4: Group tickets by epic within each PI
     // Collect all unique epic keys (excluding __NO_EPIC__) for summary/stretch lookup
     const allEpicKeys = new Set<string>();
@@ -235,7 +228,6 @@ export const POST = async (request: NextRequest) => {
     const epicInfoMap = new Map<string, { summary: string; isStretch: boolean }>();
 
     if (allEpicKeys.size > 0) {
-      console.log(`[AllWork] Fetching details for ${allEpicKeys.size} unique epics`);
       const epicFetchPromises = Array.from(allEpicKeys).map(async (epicKey) => {
         try {
           const epicIssue = await client.getIssue(epicKey);
