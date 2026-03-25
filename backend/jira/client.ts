@@ -59,9 +59,9 @@ interface SprintReportIssue {
  * Note: Must use `NOT labels = "X"` instead of `labels != "X"` because
  * labels is a multi-value field. `labels != "X"` means "has any label
  * that is not X" (true even if Mainframe is present alongside other labels).
- * `NOT labels = "X"` means "does not have X as a label" which is correct.
+ * Uses OR labels IS EMPTY so issues with no labels at all are also included.
  */
-export const EXCLUDE_MAINFRAME = 'NOT labels = "Mainframe"';
+export const EXCLUDE_MAINFRAME = '(labels NOT IN ("Mainframe") OR labels IS EMPTY)';
 
 /**
  * Configuration for JIRA API client

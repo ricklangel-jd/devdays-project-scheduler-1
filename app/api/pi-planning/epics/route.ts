@@ -42,7 +42,7 @@ export const GET = async (request: NextRequest) => {
     const fieldConfig = buildFieldConfig(client);
 
     // Fetch all non-done, non-canceled epics for the project
-    const epicJql = `issuetype = Epic AND project = ${projectKey} AND statusCategory != Done AND status != "Canceled" AND ${EXCLUDE_MAINFRAME} ORDER BY key ASC`;
+    const epicJql = `issuetype = Epic AND project = ${projectKey} AND status not in (Canceled, Resolved) AND ${EXCLUDE_MAINFRAME} ORDER BY key ASC`;
     const epicsResponse = await client.searchAllIssues(epicJql, [STORY_POINT_ESTIMATE_FIELD]);
 
     // Fetch all non-done, non-canceled child stories/tasks in one query

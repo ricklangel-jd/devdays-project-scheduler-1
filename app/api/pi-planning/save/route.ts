@@ -5,6 +5,7 @@ interface EpicUpdate {
   key: string;
   storyPointEstimate: number | null;
   isStretch: boolean;
+  isPlannedStretch: boolean;
 }
 
 interface SaveRequest {
@@ -43,15 +44,9 @@ export const POST = async (request: NextRequest) => {
           fields.customfield_10016 = epic.storyPointEstimate;
         }
 
-        const labelOps: Array<Record<string, unknown>> = [
-          { add: piLabel },
-        ];
-
-        // Add or remove Stretch label
-        if (epic.isStretch) {
-          labelOps.push({ add: 'Stretch' });
-        } else {
-          labelOps.push({ remove: 'Stretch' });
+        const labelOps: Array<Record<string, unknown>> = [{ add: piLabel }];
+        for (const [flag, name] of [[epic.isStretch, 'Stretch'], [epic.isPlannedStretch, 'StretchPlan']] as [boolean, string][]) {
+          labelOps.push(flag ? { add: name } : { remove: name });
         }
 
         await client.updateIssueAdvanced(

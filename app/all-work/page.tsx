@@ -19,17 +19,12 @@ import type { SprintCapacityInfo } from '@/frontend/hooks/useCapacityDemandData'
 import { QUERY_PARAM_KEYS } from '@/shared/types';
 import type { JiraSprint, PiSprintAssignment } from '@/shared/types';
 import { deserializeCapacity, computeTotalCapacity } from '@/shared/lib/capacity';
+import { serializePiSprints } from '@/shared/lib/piSprints';
 
 interface ConnectionStatus {
   connected: boolean;
   email?: string;
 }
-
-const serializePiSprints = (assignments: PiSprintAssignment[]): string =>
-  assignments
-    .filter((a) => a.sprintIds.length > 0)
-    .map((a) => `${a.piLabel}:${a.sprintIds.join('.')}`)
-    .join(',');
 
 const AllWorkContent = () => {
   const router = useRouter();
@@ -85,16 +80,12 @@ const AllWorkContent = () => {
   // ── PI sprint state — loaded from Jira, not URL ───────────────────
 
   const [piSprints, setPiSprints] = useState<PiSprintAssignment[]>([]);
-  // undefined = not yet loaded, true = story exists in Jira, false = story doesn't exist
-  const [piSprintsExistInJira, setPiSprintsExistInJira] = useState<Record<string, boolean | undefined>>({});
-  const [isSavingPiSprints, setIsSavingPiSprints] = useState<Record<string, boolean>>({});
 
   const loadedPisRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!projectKey) {
       setPiSprints([]);
-      setPiSprintsExistInJira({});
       loadedPisRef.current = new Set();
       return;
     }
@@ -108,11 +99,6 @@ const AllWorkContent = () => {
     if (removedPis.length > 0) {
       for (const pi of removedPis) loadedPisRef.current.delete(`${projectKey}:${pi}`);
       setPiSprints((prev) => prev.filter((a) => piLabels.includes(a.piLabel)));
-      setPiSprintsExistInJira((prev) => {
-        const next = { ...prev };
-        for (const pi of removedPis) delete next[pi];
-        return next;
-      });
     }
 
     // Load only newly added PIs
@@ -129,15 +115,14 @@ const AllWorkContent = () => {
           const json = await res.json();
           if (json.data) {
             const ids = (json.data as string).split(',').map(Number).filter(Boolean);
-            return { pi, sprintIds: ids, exists: true };
+            return { pi, sprintIds: ids };
           }
         } catch { /* fall through */ }
-        return { pi, sprintIds: [] as number[], exists: false };
+        return { pi, sprintIds: [] as number[] };
       })
     ).then((results) => {
       if (cancelled) return;
       for (const r of results) loadedPisRef.current.add(`${projectKey}:${r.pi}`);
-
       setPiSprints((prev) => {
         const next = [...prev];
         for (const r of results) {
@@ -148,36 +133,10 @@ const AllWorkContent = () => {
         }
         return next;
       });
-
-      setPiSprintsExistInJira((prev) => {
-        const next = { ...prev };
-        for (const r of results) next[r.pi] = r.exists;
-        return next;
-      });
     });
 
     return () => { cancelled = true; };
   }, [projectKey, piLabels]);
-
-  const handleSavePiSprints = useCallback(async (piLabel: string) => {
-    if (!projectKey) return;
-    setIsSavingPiSprints((prev) => ({ ...prev, [piLabel]: true }));
-    try {
-      const assignment = piSprints.find((a) => a.piLabel === piLabel);
-      const sprintIds = assignment?.sprintIds ?? [];
-      const res = await fetch('/api/capacity/pi-sprints', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectKey, pi: piLabel, sprintIds }),
-      });
-      if (res.ok) {
-        setPiSprintsExistInJira((prev) => ({ ...prev, [piLabel]: true }));
-      }
-    } catch { /* ignore */ }
-    finally {
-      setIsSavingPiSprints((prev) => ({ ...prev, [piLabel]: false }));
-    }
-  }, [projectKey, piSprints]);
 
   const piSprintsKey = useMemo(() => serializePiSprints(piSprints), [piSprints]);
 
@@ -285,9 +244,6 @@ const AllWorkContent = () => {
     router.push(newUrl, { scroll: false });
   }, [router]);
 
-  const handlePiSprintsChange = useCallback((assignments: PiSprintAssignment[]) => {
-    setPiSprints(assignments);
-  }, []);
 
   const prevValuesRef = useRef<{
     projectKey: string;
@@ -346,16 +302,9 @@ const AllWorkContent = () => {
           <CapacityDemandSidebarContent
             projectKey={projectKey}
             piLabels={piLabels}
-            boardId={boardId}
-            piSprints={piSprints}
             isGenerating={isLoading}
             showCapacityControls={false}
-            sprintsRequired
-            piSprintsExistInJira={piSprintsExistInJira}
-            onSavePiSprints={handleSavePiSprints}
-            isSavingPiSprints={isSavingPiSprints}
             onPILabelsChange={handlePILabelsChange}
-            onPiSprintsChange={handlePiSprintsChange}
           />
         </Sidebar>
         <MainContent>

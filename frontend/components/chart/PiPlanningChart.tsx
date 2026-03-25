@@ -186,6 +186,13 @@ const PiPlanningChart = ({ epics, piLabel, capacitySegments }: PiPlanningChartPr
     });
   }, [visibleEpics, yScale, chartHeight, demandBarX, epicColorMap]);
 
+  const capacityPct = showCapacity && totalCapacity > 0 && totalPoints > 0
+    ? Math.round((totalPoints / totalCapacity) * 100)
+    : null;
+  const capacityPctColor = capacityPct !== null
+    ? (capacityPct > 100 ? 'error.main' : capacityPct >= 90 ? 'warning.main' : 'success.main')
+    : undefined;
+
   // Legend height for SVG sizing
   const legendRows = epics.length + (showCapacity ? 2 : 0);
   const legendHeight = (legendRows + 1) * LEGEND_ROW_HEIGHT + 10;
@@ -199,9 +206,16 @@ const PiPlanningChart = ({ epics, piLabel, capacitySegments }: PiPlanningChartPr
       sx={{ px: 2, py: 1.5, overflow: 'auto', height: '100%' }}
       elevation={1}
     >
-      <Typography variant="subtitle1" sx={{ mb: 0.25, fontWeight: 'bold' }}>
-        {piLabel} Epic Points
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, flexWrap: 'wrap', mb: 0.25 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
+          {piLabel} Epic Points
+        </Typography>
+        {capacityPct !== null && (
+          <Typography variant="body2" fontWeight={700} color={capacityPctColor}>
+            {capacityPct}% of capacity
+          </Typography>
+        )}
+      </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
         {epics.length > 0
           ? `${visibleEpics.length} epic${visibleEpics.length !== 1 ? 's' : ''} \u2022 ${totalPoints} total points`

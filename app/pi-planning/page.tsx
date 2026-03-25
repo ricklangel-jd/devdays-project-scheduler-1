@@ -42,7 +42,7 @@ interface ConnectionStatus {
 }
 
 // Sortable columns
-type SortColumn = 'checked' | 'key' | 'summary' | 'status' | 'childPoints' | 'piPoints' | 'stretch';
+type SortColumn = 'checked' | 'key' | 'summary' | 'status' | 'childPoints' | 'piPoints' | 'plannedStretch' | 'stretch';
 type SortDirection = 'asc' | 'desc';
 
 interface SprintCapacityDetail {
@@ -73,6 +73,7 @@ const PiPlanningContent = () => {
   // Local editing state
   const [checkedEpics, setCheckedEpics] = useState<Map<string, boolean>>(new Map());
   const [stretchFlags, setStretchFlags] = useState<Map<string, boolean>>(new Map());
+  const [plannedStretchFlags, setPlannedStretchFlags] = useState<Map<string, boolean>>(new Map());
   const [pointsEntries, setPointsEntries] = useState<Map<string, number | null>>(new Map());
   const [originalChecked, setOriginalChecked] = useState<Set<string>>(new Set());
   const [snackbarOpen, setSnackbarOpen] = useState(false);
@@ -244,6 +245,7 @@ const PiPlanningContent = () => {
     if (!selectedPi || epics.length === 0) {
       setCheckedEpics(new Map());
       setStretchFlags(new Map());
+      setPlannedStretchFlags(new Map());
       setPointsEntries(new Map());
       setOriginalChecked(new Set());
       return;
@@ -251,20 +253,22 @@ const PiPlanningContent = () => {
 
     const newChecked = new Map<string, boolean>();
     const newStretch = new Map<string, boolean>();
+    const newPlannedStretch = new Map<string, boolean>();
     const newPoints = new Map<string, number | null>();
     const newOriginalChecked = new Set<string>();
 
     for (const epic of epics) {
       const hasPiLabel = epic.labels.some((l) => l.toLowerCase() === selectedPi.toLowerCase());
-      const hasStretch = epic.labels.some((l) => l.toLowerCase() === 'stretch');
       newChecked.set(epic.key, hasPiLabel);
-      newStretch.set(epic.key, hasStretch);
+      newStretch.set(epic.key, epic.labels.some((l) => l.toLowerCase() === 'stretch'));
+      newPlannedStretch.set(epic.key, epic.labels.some((l) => l.toLowerCase() === 'stretchplan'));
       newPoints.set(epic.key, epic.storyPointEstimate);
       if (hasPiLabel) newOriginalChecked.add(epic.key);
     }
 
     setCheckedEpics(newChecked);
     setStretchFlags(newStretch);
+    setPlannedStretchFlags(newPlannedStretch);
     setPointsEntries(newPoints);
     setOriginalChecked(newOriginalChecked);
   }, [selectedPi, epics]);
@@ -285,6 +289,10 @@ const PiPlanningContent = () => {
 
   const handleStretchChange = useCallback((epicKey: string, isStretch: boolean) => {
     setStretchFlags((prev) => { const next = new Map(prev); next.set(epicKey, isStretch); return next; });
+  }, []);
+
+  const handlePlannedStretchChange = useCallback((epicKey: string, isPlannedStretch: boolean) => {
+    setPlannedStretchFlags((prev) => { const next = new Map(prev); next.set(epicKey, isPlannedStretch); return next; });
   }, []);
 
   const handlePointsChange = useCallback((epicKey: string, value: string) => {
@@ -310,12 +318,13 @@ const PiPlanningContent = () => {
         case 'status': return a.status.localeCompare(b.status) * dir;
         case 'childPoints': return (a.childStoryPoints - b.childStoryPoints) * dir;
         case 'piPoints': return ((pointsEntries.get(a.key) ?? 0) - (pointsEntries.get(b.key) ?? 0)) * dir;
+        case 'plannedStretch': return ((plannedStretchFlags.get(a.key) ? 1 : 0) - (plannedStretchFlags.get(b.key) ? 1 : 0)) * dir;
         case 'stretch': return ((stretchFlags.get(a.key) ? 1 : 0) - (stretchFlags.get(b.key) ? 1 : 0)) * dir;
         default: return 0;
       }
     });
     return sorted;
-  }, [epics, sortColumn, sortDirection, checkedEpics, pointsEntries, stretchFlags]);
+  }, [epics, sortColumn, sortDirection, checkedEpics, pointsEntries, stretchFlags, plannedStretchFlags]);
 
   // Running totals
   const { checkedCount, totalPoints } = useMemo(() => {
@@ -356,24 +365,28 @@ const PiPlanningContent = () => {
       if (isChecked !== wasChecked) return true;
       if (isChecked) {
         if ((pointsEntries.get(epic.key) ?? null) !== epic.storyPointEstimate) return true;
-        const currentStretch = stretchFlags.get(epic.key) ?? false;
-        const wasStretch = epic.labels.some((l) => l.toLowerCase() === 'stretch');
-        if (currentStretch !== wasStretch) return true;
+        if ((stretchFlags.get(epic.key) ?? false) !== epic.labels.some((l) => l.toLowerCase() === 'stretch')) return true;
+        if ((plannedStretchFlags.get(epic.key) ?? false) !== epic.labels.some((l) => l.toLowerCase() === 'stretchplan')) return true;
       }
     }
     return false;
-  }, [selectedPi, epics, checkedEpics, originalChecked, pointsEntries, stretchFlags]);
+  }, [selectedPi, epics, checkedEpics, originalChecked, pointsEntries, stretchFlags, plannedStretchFlags]);
 
   // Save handler
   const handleSave = useCallback(async () => {
     if (!selectedPi) return;
-    const updates: { key: string; storyPointEstimate: number | null; isStretch: boolean }[] = [];
+    const updates: { key: string; storyPointEstimate: number | null; isStretch: boolean; isPlannedStretch: boolean }[] = [];
     const removals: string[] = [];
     for (const epic of epics) {
       const isChecked = checkedEpics.get(epic.key) ?? false;
       const wasChecked = originalChecked.has(epic.key);
       if (isChecked) {
-        updates.push({ key: epic.key, storyPointEstimate: pointsEntries.get(epic.key) ?? null, isStretch: stretchFlags.get(epic.key) ?? false });
+        updates.push({
+          key: epic.key,
+          storyPointEstimate: pointsEntries.get(epic.key) ?? null,
+          isStretch: stretchFlags.get(epic.key) ?? false,
+          isPlannedStretch: plannedStretchFlags.get(epic.key) ?? false,
+        });
       } else if (wasChecked) {
         removals.push(epic.key);
       }
@@ -387,7 +400,7 @@ const PiPlanningContent = () => {
       setSnackbarMessage('Some updates failed. Check the console for details.');
     }
     setSnackbarOpen(true);
-  }, [selectedPi, epics, checkedEpics, originalChecked, pointsEntries, stretchFlags, saveChanges]);
+  }, [selectedPi, epics, checkedEpics, originalChecked, pointsEntries, stretchFlags, plannedStretchFlags, saveChanges]);
 
   const handleRefresh = useCallback(() => {
     if (!projectKey || isLoading) return;
@@ -514,6 +527,7 @@ const PiPlanningContent = () => {
                           <SortHeader column="status" label="Status" />
                           <SortHeader column="childPoints" label="Child Points" align="right" />
                           <SortHeader column="piPoints" label="PI Points" align="right" />
+                          <SortHeader column="plannedStretch" label="Planned Stretch" align="center" />
                           <SortHeader column="stretch" label="Stretch" align="center" />
                         </TableRow>
                       </TableHead>
@@ -521,6 +535,7 @@ const PiPlanningContent = () => {
                         {sortedEpics.map((epic, idx) => {
                           const isChecked = checkedEpics.get(epic.key) ?? false;
                           const isStretch = stretchFlags.get(epic.key) ?? false;
+                          const isPlannedStretch = plannedStretchFlags.get(epic.key) ?? false;
                           const points = pointsEntries.get(epic.key);
                           return (
                             <EpicRow
@@ -528,11 +543,13 @@ const PiPlanningContent = () => {
                               epic={epic}
                               isChecked={isChecked}
                               isStretch={isStretch}
+                              isPlannedStretch={isPlannedStretch}
                               points={points ?? null}
                               even={idx % 2 === 1}
                               getStatusColor={getStatusColor}
                               onCheckChange={handleCheckChange}
                               onStretchChange={handleStretchChange}
+                              onPlannedStretchChange={handlePlannedStretchChange}
                               onPointsChange={handlePointsChange}
                             />
                           );
@@ -549,6 +566,7 @@ const PiPlanningContent = () => {
                               {totalPoints}
                             </Box>
                           </TableCell>
+                          <TableCell sx={compactCell} />
                           <TableCell sx={compactCell} />
                         </TableRow>
                       </TableBody>
@@ -697,17 +715,19 @@ interface EpicRowProps {
   epic: PiPlanningEpic;
   isChecked: boolean;
   isStretch: boolean;
+  isPlannedStretch: boolean;
   points: number | null;
   even: boolean;
   getStatusColor: (status: string) => 'default' | 'primary' | 'success' | 'warning' | 'info';
   onCheckChange: (key: string, checked: boolean) => void;
   onStretchChange: (key: string, isStretch: boolean) => void;
+  onPlannedStretchChange: (key: string, isPlannedStretch: boolean) => void;
   onPointsChange: (key: string, value: string) => void;
 }
 
 const compactCellSx = { fontSize: '0.75rem', py: 0.25, px: 0.5 } as const;
 
-const EpicRow = ({ epic, isChecked, isStretch, points, even, getStatusColor, onCheckChange, onStretchChange, onPointsChange }: EpicRowProps) => (
+const EpicRow = ({ epic, isChecked, isStretch, isPlannedStretch, points, even, getStatusColor, onCheckChange, onStretchChange, onPlannedStretchChange, onPointsChange }: EpicRowProps) => (
   <TableRow
     hover
     sx={{
@@ -746,6 +766,9 @@ const EpicRow = ({ epic, isChecked, isStretch, points, even, getStatusColor, onC
         inputProps={{ min: 0, step: 0.5, style: { fontSize: '0.75rem', padding: '2px 4px' } }}
         sx={{ width: 70 }}
       />
+    </TableCell>
+    <TableCell align="center" sx={compactCellSx}>
+      <Checkbox checked={isPlannedStretch} onChange={(e) => onPlannedStretchChange(epic.key, e.target.checked)} disabled={!isChecked} size="small" sx={{ p: 0.25 }} />
     </TableCell>
     <TableCell align="center" sx={compactCellSx}>
       <Checkbox checked={isStretch} onChange={(e) => onStretchChange(epic.key, e.target.checked)} disabled={!isChecked} size="small" sx={{ p: 0.25 }} />
