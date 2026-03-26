@@ -97,9 +97,7 @@ const findEpicsForPI = async (
   client: ReturnType<typeof getJiraClient>
 ): Promise<{ key: string; summary: string; isStretch: boolean }[]> => {
   const jql = `labels = "${label}" AND ${EXCLUDE_MAINFRAME} AND project = ${projectKey} AND status != "Canceled" ORDER BY key ASC`;
-  console.log(`[Capacity/Demand] Searching: ${jql}`);
   const epicsResponse = await client.searchAllIssues(jql, ['issuetype']);
-  console.log(`[Capacity/Demand] Label "${label}": found ${epicsResponse.issues.length} issues`);
 
   const results: { key: string; summary: string; isStretch: boolean }[] = [];
 
@@ -107,16 +105,12 @@ const findEpicsForPI = async (
     const issueTypeField = epicIssue.fields['issuetype'] as { name: string } | undefined;
     const issueTypeName = issueTypeField?.name ?? 'Unknown';
 
-    console.log(`[Capacity/Demand]   Found: ${epicIssue.key} (type: ${issueTypeName}) - ${epicIssue.fields.summary}, labels: ${(epicIssue.fields.labels ?? []).join(', ')}`);
-
     if (issueTypeName !== 'Unknown' && issueTypeName.toLowerCase() !== 'epic') {
-      console.log(`[Capacity/Demand]   Skipping ${epicIssue.key}: not an Epic (type: ${issueTypeName})`);
       continue;
     }
 
     const epicStatus = epicIssue.fields.status.name.toLowerCase();
     if (epicStatus === 'canceled' || epicStatus === 'cancelled') {
-      console.log(`[Capacity/Demand]   Skipping ${epicIssue.key}: status is ${epicIssue.fields.status.name}`);
       continue;
     }
 
@@ -293,10 +287,8 @@ export const POST = async (request: NextRequest) => {
     // If a board is selected, fetch all sprint IDs for that board to filter stories
     let boardSprintIds: Set<number> | undefined;
     if (boardId) {
-      console.log(`[Capacity/Demand] Board ${boardId} selected — fetching board sprints for filtering`);
       const boardSprints = await client.getSprints(undefined, boardId);
       boardSprintIds = new Set(boardSprints.map((s) => s.id));
-      console.log(`[Capacity/Demand] Board has ${boardSprintIds.size} sprints`);
     }
 
     // Determine if sprint-filtered mode is active
@@ -304,10 +296,8 @@ export const POST = async (request: NextRequest) => {
 
     let piData: PIDemand[];
     if (hasSprintAssignments) {
-      console.log('[Capacity/Demand] Sprint-filtered mode active');
       piData = await processWithSprints(piLabels, projectKey, piSprints!, client, boardSprintIds);
     } else {
-      console.log('[Capacity/Demand] Standard mode (no sprint filtering)');
       piData = await processWithoutSprints(piLabels, projectKey, client, boardSprintIds);
     }
 

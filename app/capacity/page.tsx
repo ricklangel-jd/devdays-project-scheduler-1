@@ -76,10 +76,11 @@ interface EngineerGridProps {
   onToggleTechLead: (name: string) => void;
   onDaysOutChange: (name: string, value: number) => void;
   onCapacityPctChange: (name: string, value: number) => void;
+  onNotesChange: (name: string, value: string) => void;
   onSupportPctChange: (value: number) => void;
 }
 
-const EngineerGrid = ({ sprintName, rows, supportPct, onToggleTechLead, onDaysOutChange, onCapacityPctChange, onSupportPctChange }: EngineerGridProps) => {
+const EngineerGrid = ({ sprintName, rows, supportPct, onToggleTechLead, onDaysOutChange, onCapacityPctChange, onNotesChange, onSupportPctChange }: EngineerGridProps) => {
   const totalCapacity = useMemo(
     () => computeTotalCapacity(rows, supportPct),
     [rows, supportPct]
@@ -97,7 +98,7 @@ const EngineerGrid = ({ sprintName, rows, supportPct, onToggleTechLead, onDaysOu
         </Typography>
       </Typography>
 
-      <TableContainer component={Paper} elevation={1} sx={{ maxWidth: 680 }}>
+      <TableContainer component={Paper} elevation={1} sx={{ maxWidth: 1260 }}>
         <Table size="small" stickyHeader>
           <TableHead>
             <TableRow>
@@ -106,6 +107,7 @@ const EngineerGrid = ({ sprintName, rows, supportPct, onToggleTechLead, onDaysOu
               <TableCell sx={{ ...headerSx, textAlign: 'right' }}>Days Out</TableCell>
               <TableCell sx={{ ...headerSx, textAlign: 'right' }}>% Capacity</TableCell>
               <TableCell sx={{ ...headerSx, textAlign: 'right' }}>Capacity</TableCell>
+              <TableCell sx={headerSx}>Notes</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -168,6 +170,16 @@ const EngineerGrid = ({ sprintName, rows, supportPct, onToggleTechLead, onDaysOu
                   >
                     {capacity}
                   </TableCell>
+
+                  <TableCell sx={{ ...colSx, py: 0.25 }}>
+                    <TextField
+                      size="small"
+                      value={row.notes ?? ''}
+                      onChange={(e) => onNotesChange(row.name, e.target.value)}
+                      inputProps={{ style: { fontSize: '0.82rem' } }}
+                      sx={{ width: 800 }}
+                    />
+                  </TableCell>
                 </TableRow>
               );
             })}
@@ -175,6 +187,7 @@ const EngineerGrid = ({ sprintName, rows, supportPct, onToggleTechLead, onDaysOu
             <TableRow sx={{ borderTop: 2, borderColor: 'grey.300' }}>
               <TableCell sx={{ ...colSx, fontWeight: 700 }} colSpan={4}>Total</TableCell>
               <TableCell sx={{ ...colSx, textAlign: 'right', fontWeight: 700 }}>{totalCapacity}</TableCell>
+              <TableCell />
             </TableRow>
           </TableBody>
         </Table>
@@ -457,6 +470,10 @@ const CapacityContent = () => {
     setEngineerRows((prev) => prev.map((r) => r.name === name ? { ...r, capacityPct: value } : r));
   }, []);
 
+  const handleNotesChange = useCallback((name: string, value: string) => {
+    setEngineerRows((prev) => prev.map((r) => r.name === name ? { ...r, notes: value } : r));
+  }, []);
+
   const selectedSprintsForPi = useMemo(
     () => allSprints.filter((s) => selectedSprintIds.includes(s.id)),
     [allSprints, selectedSprintIds]
@@ -492,6 +509,7 @@ const CapacityContent = () => {
                     onToggleTechLead={handleToggleTechLead}
                     onDaysOutChange={handleDaysOutChange}
                     onCapacityPctChange={handleCapacityPctChange}
+                    onNotesChange={handleNotesChange}
                     onSupportPctChange={setSupportPct}
                   />
                   <Box sx={{ mt: 2 }}>
@@ -550,6 +568,7 @@ const CapacityContent = () => {
                           getOptionLabel={(option) => option.name}
                           isOptionEqualToValue={(option, value) => option.id === value.id}
                           onChange={(_e, newValue) => setSelectedSprintIds(newValue.map((s) => s.id))}
+                          slotProps={{ chip: { size: 'small' } }}
                           renderOption={(props, option, { selected }) => {
                             const { key, ...rest } = props;
                             return (
@@ -575,7 +594,7 @@ const CapacityContent = () => {
                               placeholder={selectedSprintIds.length > 0 ? '' : 'Select sprints...'}
                             />
                           )}
-                          sx={{ mb: 2 }}
+                          sx={{ mb: 2, '& .MuiAutocomplete-inputRoot': { flexWrap: 'wrap' } }}
                         />
                       )}
 

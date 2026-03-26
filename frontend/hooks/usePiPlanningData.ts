@@ -6,6 +6,7 @@ export interface PiPlanningEpic {
   key: string;
   summary: string;
   status: string;
+  priority: string | null;
   labels: string[];
   storyPointEstimate: number | null;
   childStoryPoints: number;
@@ -15,6 +16,8 @@ interface EpicUpdate {
   key: string;
   storyPointEstimate: number | null;
   isStretch: boolean;
+  isPlannedStretch: boolean;
+  priority: string | null;
 }
 
 interface SaveResult {

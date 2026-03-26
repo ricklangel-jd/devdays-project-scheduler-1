@@ -6,6 +6,7 @@ interface EpicUpdate {
   storyPointEstimate: number | null;
   isStretch: boolean;
   isPlannedStretch: boolean;
+  priority: string | null;
 }
 
 interface SaveRequest {
@@ -42,6 +43,13 @@ export const POST = async (request: NextRequest) => {
         const fields: Record<string, unknown> = {};
         if (epic.storyPointEstimate !== null) {
           fields.customfield_10016 = epic.storyPointEstimate;
+        }
+        if (epic.priority) {
+          // Map display names back to Jira's internal values
+          const jiraPriority = epic.priority === 'Highest' ? 'Emergency'
+            : epic.priority === 'Lowest' ? 'Undetermined'
+            : epic.priority;
+          fields.priority = { name: jiraPriority };
         }
 
         const labelOps: Array<Record<string, unknown>> = [{ add: piLabel }];

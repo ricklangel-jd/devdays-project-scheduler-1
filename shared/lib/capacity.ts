@@ -11,6 +11,7 @@ export interface EngineerRow {
   isTechLead: boolean;
   daysOut: number;
   capacityPct: number;
+  notes?: string;
 }
 
 export interface CapacityPayload {
@@ -35,12 +36,12 @@ export const countNonTechLeadEngineers = (rows: EngineerRow[]): number =>
   rows.filter((r) => !r.isTechLead).length;
 
 // ── Serialization ────────────────────────────────────────────────────
-// Format: "supportPct;Name:isTechLead:daysOut:capacityPct|..."
-// Names are URI-encoded to handle spaces/special chars.
+// Format: "supportPct;Name:isTechLead:daysOut:capacityPct:notes|..."
+// Names and notes are URI-encoded to handle spaces/special chars.
 
 export const serializeCapacity = (rows: EngineerRow[], supportPct: number): string => {
   const engineerPart = rows
-    .map((r) => `${encodeURIComponent(r.name)}:${r.isTechLead ? 1 : 0}:${r.daysOut}:${r.capacityPct}`)
+    .map((r) => `${encodeURIComponent(r.name)}:${r.isTechLead ? 1 : 0}:${r.daysOut}:${r.capacityPct}:${encodeURIComponent(r.notes ?? '')}`)
     .join('|');
   return `${supportPct};${engineerPart}`;
 };
@@ -51,13 +52,14 @@ export const deserializeCapacity = (raw: string): CapacityPayload | null => {
     const supportPct = semicolon !== -1 ? parseInt(raw.slice(0, semicolon), 10) : 10;
     const engineerPart = semicolon !== -1 ? raw.slice(semicolon + 1) : raw;
     const rows = engineerPart.split('|').map((entry) => {
-      const [namePart, tlPart, doPart, pctPart] = entry.split(':');
+      const [namePart, tlPart, doPart, pctPart, notesPart] = entry.split(':');
       const name = decodeURIComponent(namePart);
       const isTechLead = tlPart === '1';
       const daysOut = parseFloat(doPart);
       const capacityPct = pctPart !== undefined ? parseInt(pctPart, 10) : 100;
       if (!name || isNaN(daysOut) || isNaN(capacityPct)) return null;
-      return { name, isTechLead, daysOut, capacityPct };
+      const notes = notesPart ? decodeURIComponent(notesPart) : undefined;
+      return { name, isTechLead, daysOut, capacityPct, notes };
     });
     if (rows.some((r) => r === null) || isNaN(supportPct)) return null;
     return { rows: rows as EngineerRow[], supportPct };

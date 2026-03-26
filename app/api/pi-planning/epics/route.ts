@@ -16,6 +16,7 @@ export interface PiPlanningEpic {
   key: string;
   summary: string;
   status: string;
+  priority: string | null;
   labels: string[];
   storyPointEstimate: number | null;
   childStoryPoints: number;
@@ -43,7 +44,7 @@ export const GET = async (request: NextRequest) => {
 
     // Fetch all non-done, non-canceled epics for the project
     const epicJql = `issuetype = Epic AND project = ${projectKey} AND status not in (Canceled, Resolved) AND ${EXCLUDE_MAINFRAME} ORDER BY key ASC`;
-    const epicsResponse = await client.searchAllIssues(epicJql, [STORY_POINT_ESTIMATE_FIELD]);
+    const epicsResponse = await client.searchAllIssues(epicJql, [STORY_POINT_ESTIMATE_FIELD, 'priority']);
 
     // Fetch all non-done, non-canceled child stories/tasks in one query
     const childJql = `issuetype in (Story, Task, "Service Ticket") AND project = ${projectKey} AND statusCategory != Done AND status != "Canceled" AND ${EXCLUDE_MAINFRAME} AND "Epic Link" is not EMPTY ORDER BY key ASC`;
@@ -86,10 +87,18 @@ export const GET = async (request: NextRequest) => {
       const storyPointEstimate =
         typeof storyPointEstimateValue === 'number' ? storyPointEstimateValue : null;
 
+      const priorityField = issue.fields.priority as { name?: string } | null | undefined;
+      const rawPriority = priorityField?.name ?? null;
+      // Normalize Jira-specific names to display names
+      const priority = rawPriority === 'Emergency' ? 'Highest'
+        : rawPriority === 'Undetermined' ? 'Lowest'
+        : rawPriority;
+
       return {
         key: issue.key,
         summary: issue.fields.summary,
         status: issue.fields.status.name,
+        priority,
         labels: issue.fields.labels ?? [],
         storyPointEstimate,
         childStoryPoints: childPointsByEpic.get(issue.key) ?? 0,

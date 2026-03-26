@@ -18,6 +18,8 @@ import Paper from '@mui/material/Paper';
 import Checkbox from '@mui/material/Checkbox';
 import TextField from '@mui/material/TextField';
 import Chip from '@mui/material/Chip';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
 import Fab from '@mui/material/Fab';
 import Tooltip from '@mui/material/Tooltip';
 import Link from '@mui/material/Link';
@@ -42,7 +44,9 @@ interface ConnectionStatus {
 }
 
 // Sortable columns
-type SortColumn = 'checked' | 'key' | 'summary' | 'status' | 'childPoints' | 'piPoints' | 'plannedStretch' | 'stretch';
+type SortColumn = 'checked' | 'priority' | 'key' | 'summary' | 'status' | 'childPoints' | 'piPoints' | 'plannedStretch' | 'stretch';
+
+const PRIORITY_ORDER: Record<string, number> = { Highest: 0, Emergency: 0, High: 1, Medium: 2, Low: 3, Lowest: 4, Undetermined: 4 };
 type SortDirection = 'asc' | 'desc';
 
 interface SprintCapacityDetail {
@@ -75,6 +79,7 @@ const PiPlanningContent = () => {
   const [stretchFlags, setStretchFlags] = useState<Map<string, boolean>>(new Map());
   const [plannedStretchFlags, setPlannedStretchFlags] = useState<Map<string, boolean>>(new Map());
   const [pointsEntries, setPointsEntries] = useState<Map<string, number | null>>(new Map());
+  const [priorityMap, setPriorityMap] = useState<Map<string, string | null>>(new Map());
   const [originalChecked, setOriginalChecked] = useState<Set<string>>(new Set());
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
@@ -255,6 +260,7 @@ const PiPlanningContent = () => {
     const newStretch = new Map<string, boolean>();
     const newPlannedStretch = new Map<string, boolean>();
     const newPoints = new Map<string, number | null>();
+    const newPriority = new Map<string, string | null>();
     const newOriginalChecked = new Set<string>();
 
     for (const epic of epics) {
@@ -263,6 +269,7 @@ const PiPlanningContent = () => {
       newStretch.set(epic.key, epic.labels.some((l) => l.toLowerCase() === 'stretch'));
       newPlannedStretch.set(epic.key, epic.labels.some((l) => l.toLowerCase() === 'stretchplan'));
       newPoints.set(epic.key, epic.storyPointEstimate);
+      newPriority.set(epic.key, epic.priority);
       if (hasPiLabel) newOriginalChecked.add(epic.key);
     }
 
@@ -270,6 +277,7 @@ const PiPlanningContent = () => {
     setStretchFlags(newStretch);
     setPlannedStretchFlags(newPlannedStretch);
     setPointsEntries(newPoints);
+    setPriorityMap(newPriority);
     setOriginalChecked(newOriginalChecked);
   }, [selectedPi, epics]);
 
@@ -295,6 +303,10 @@ const PiPlanningContent = () => {
     setPlannedStretchFlags((prev) => { const next = new Map(prev); next.set(epicKey, isPlannedStretch); return next; });
   }, []);
 
+  const handlePriorityChange = useCallback((epicKey: string, priority: string | null) => {
+    setPriorityMap((prev) => { const next = new Map(prev); next.set(epicKey, priority); return next; });
+  }, []);
+
   const handlePointsChange = useCallback((epicKey: string, value: string) => {
     const numValue = value === '' ? null : parseFloat(value);
     setPointsEntries((prev) => { const next = new Map(prev); next.set(epicKey, numValue !== null && isNaN(numValue) ? null : numValue); return next; });
@@ -311,8 +323,20 @@ const PiPlanningContent = () => {
     const sorted = [...epics];
     const dir = sortDirection === 'asc' ? 1 : -1;
     sorted.sort((a, b) => {
+      // Primary: checked epics always float to the top
+      const aChecked = checkedEpics.get(a.key) ? 1 : 0;
+      const bChecked = checkedEpics.get(b.key) ? 1 : 0;
+      if (aChecked !== bChecked) return bChecked - aChecked;
+
+      // Secondary: planned stretch descending within each group
+      const aPlanned = plannedStretchFlags.get(a.key) ? 1 : 0;
+      const bPlanned = plannedStretchFlags.get(b.key) ? 1 : 0;
+      if (aPlanned !== bPlanned) return aPlanned - bPlanned;
+
+      // Tertiary: user-selected column
+      if (sortColumn === 'checked') return 0;
       switch (sortColumn) {
-        case 'checked': return ((checkedEpics.get(a.key) ? 1 : 0) - (checkedEpics.get(b.key) ? 1 : 0)) * dir;
+        case 'priority': return ((PRIORITY_ORDER[priorityMap.get(a.key) ?? a.priority ?? ''] ?? 5) - (PRIORITY_ORDER[priorityMap.get(b.key) ?? b.priority ?? ''] ?? 5)) * dir;
         case 'key': return a.key.localeCompare(b.key) * dir;
         case 'summary': return a.summary.localeCompare(b.summary) * dir;
         case 'status': return a.status.localeCompare(b.status) * dir;
@@ -324,7 +348,7 @@ const PiPlanningContent = () => {
       }
     });
     return sorted;
-  }, [epics, sortColumn, sortDirection, checkedEpics, pointsEntries, stretchFlags, plannedStretchFlags]);
+  }, [epics, sortColumn, sortDirection, checkedEpics, pointsEntries, stretchFlags, plannedStretchFlags, priorityMap]);
 
   // Running totals
   const { checkedCount, totalPoints } = useMemo(() => {
@@ -367,15 +391,16 @@ const PiPlanningContent = () => {
         if ((pointsEntries.get(epic.key) ?? null) !== epic.storyPointEstimate) return true;
         if ((stretchFlags.get(epic.key) ?? false) !== epic.labels.some((l) => l.toLowerCase() === 'stretch')) return true;
         if ((plannedStretchFlags.get(epic.key) ?? false) !== epic.labels.some((l) => l.toLowerCase() === 'stretchplan')) return true;
+        if ((priorityMap.get(epic.key) ?? null) !== epic.priority) return true;
       }
     }
     return false;
-  }, [selectedPi, epics, checkedEpics, originalChecked, pointsEntries, stretchFlags, plannedStretchFlags]);
+  }, [selectedPi, epics, checkedEpics, originalChecked, pointsEntries, stretchFlags, plannedStretchFlags, priorityMap]);
 
   // Save handler
   const handleSave = useCallback(async () => {
     if (!selectedPi) return;
-    const updates: { key: string; storyPointEstimate: number | null; isStretch: boolean; isPlannedStretch: boolean }[] = [];
+    const updates: { key: string; storyPointEstimate: number | null; isStretch: boolean; isPlannedStretch: boolean; priority: string | null }[] = [];
     const removals: string[] = [];
     for (const epic of epics) {
       const isChecked = checkedEpics.get(epic.key) ?? false;
@@ -386,6 +411,7 @@ const PiPlanningContent = () => {
           storyPointEstimate: pointsEntries.get(epic.key) ?? null,
           isStretch: stretchFlags.get(epic.key) ?? false,
           isPlannedStretch: plannedStretchFlags.get(epic.key) ?? false,
+          priority: priorityMap.get(epic.key) ?? null,
         });
       } else if (wasChecked) {
         removals.push(epic.key);
@@ -400,7 +426,7 @@ const PiPlanningContent = () => {
       setSnackbarMessage('Some updates failed. Check the console for details.');
     }
     setSnackbarOpen(true);
-  }, [selectedPi, epics, checkedEpics, originalChecked, pointsEntries, stretchFlags, plannedStretchFlags, saveChanges]);
+  }, [selectedPi, epics, checkedEpics, originalChecked, pointsEntries, stretchFlags, plannedStretchFlags, priorityMap, saveChanges]);
 
   const handleRefresh = useCallback(() => {
     if (!projectKey || isLoading) return;
@@ -447,7 +473,7 @@ const PiPlanningContent = () => {
   }, [sprintCapacityDetails]);
 
   const compactCell = { fontSize: '0.75rem', py: 0.25, px: 0.5 } as const;
-  const compactHeaderCell = { ...compactCell, fontWeight: 700, whiteSpace: 'nowrap' as const, bgcolor: 'grey.100' };
+  const compactHeaderCell = { ...compactCell, fontWeight: 700, whiteSpace: 'normal' as const, lineHeight: 1.2, verticalAlign: 'bottom' as const, bgcolor: 'grey.100' };
 
   const gridHeaderCellSx = (colKey: string, defaultWidth: number, align: 'left' | 'right' = 'left') => ({
     fontSize: '0.75rem',
@@ -466,8 +492,8 @@ const PiPlanningContent = () => {
     textAlign: align,
   });
 
-  const SortHeader = ({ column, label, align }: { column: SortColumn; label: string; align?: 'left' | 'right' | 'center' }) => (
-    <TableCell sx={compactHeaderCell} align={align} sortDirection={sortColumn === column ? sortDirection : false}>
+  const SortHeader = ({ column, label, align, width }: { column: SortColumn; label: string; align?: 'left' | 'right' | 'center'; width?: number | string }) => (
+    <TableCell sx={{ ...compactHeaderCell, ...(width !== undefined ? { width, minWidth: width } : {}) }} align={align} sortDirection={sortColumn === column ? sortDirection : false}>
       <TableSortLabel
         active={sortColumn === column}
         direction={sortColumn === column ? sortDirection : 'asc'}
@@ -511,10 +537,10 @@ const PiPlanningContent = () => {
                     Epics ({epics.length})
                   </Typography>
                   <TableContainer sx={{ flex: 1, minHeight: 0 }}>
-                    <Table stickyHeader size="small">
+                    <Table stickyHeader size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
                       <TableHead>
                         <TableRow>
-                          <TableCell padding="checkbox" sortDirection={sortColumn === 'checked' ? sortDirection : false} sx={compactHeaderCell}>
+                          <TableCell padding="checkbox" sortDirection={sortColumn === 'checked' ? sortDirection : false} sx={{ ...compactHeaderCell, width: 32, minWidth: 32 }}>
                             <TableSortLabel
                               active={sortColumn === 'checked'}
                               direction={sortColumn === 'checked' ? sortDirection : 'asc'}
@@ -522,13 +548,14 @@ const PiPlanningContent = () => {
                               sx={{ '& .MuiTableSortLabel-icon': { fontSize: '0.875rem' } }}
                             />
                           </TableCell>
-                          <SortHeader column="key" label="Key" />
+                          <SortHeader column="priority" label="Priority" width={100} />
+                          <SortHeader column="key" label="Key" width={85} />
                           <SortHeader column="summary" label="Summary" />
-                          <SortHeader column="status" label="Status" />
-                          <SortHeader column="childPoints" label="Child Points" align="right" />
-                          <SortHeader column="piPoints" label="PI Points" align="right" />
-                          <SortHeader column="plannedStretch" label="Planned Stretch" align="center" />
-                          <SortHeader column="stretch" label="Stretch" align="center" />
+                          <SortHeader column="status" label="Status" width={86} />
+                          <SortHeader column="childPoints" label="Child Points" align="right" width={50} />
+                          <SortHeader column="piPoints" label="PI Points" align="right" width={78} />
+                          <SortHeader column="plannedStretch" label="Planned Stretch" align="center" width={56} />
+                          <SortHeader column="stretch" label="Stretch" align="center" width={52} />
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -537,6 +564,7 @@ const PiPlanningContent = () => {
                           const isStretch = stretchFlags.get(epic.key) ?? false;
                           const isPlannedStretch = plannedStretchFlags.get(epic.key) ?? false;
                           const points = pointsEntries.get(epic.key);
+                          const priority = priorityMap.get(epic.key) ?? null;
                           return (
                             <EpicRow
                               key={epic.key}
@@ -545,19 +573,21 @@ const PiPlanningContent = () => {
                               isStretch={isStretch}
                               isPlannedStretch={isPlannedStretch}
                               points={points ?? null}
+                              priority={priority}
                               even={idx % 2 === 1}
                               getStatusColor={getStatusColor}
                               onCheckChange={handleCheckChange}
                               onStretchChange={handleStretchChange}
                               onPlannedStretchChange={handlePlannedStretchChange}
                               onPointsChange={handlePointsChange}
+                              onPriorityChange={handlePriorityChange}
                             />
                           );
                         })}
                         {/* Running total row */}
                         <TableRow sx={{ '& td': { fontWeight: 700 }, bgcolor: 'grey.100', borderTop: 2, borderColor: 'divider' }}>
                           <TableCell sx={compactCell} />
-                          <TableCell colSpan={3} sx={compactCell}>Total ({checkedCount} epics)</TableCell>
+                          <TableCell colSpan={4} sx={compactCell}>Total ({checkedCount} epics)</TableCell>
                           <TableCell align="right" sx={compactCell}>
                             {epics.reduce((sum, e) => (checkedEpics.get(e.key) ?? false) ? sum + e.childStoryPoints : sum, 0)}
                           </TableCell>
@@ -711,23 +741,35 @@ const PiPlanningContent = () => {
 /**
  * Epic table row — extracted to avoid re-rendering the whole table on each keystroke.
  */
+const JIRA_PRIORITIES = ['Highest', 'High', 'Medium', 'Low', 'Lowest'] as const;
+
 interface EpicRowProps {
   epic: PiPlanningEpic;
   isChecked: boolean;
   isStretch: boolean;
   isPlannedStretch: boolean;
   points: number | null;
+  priority: string | null;
   even: boolean;
   getStatusColor: (status: string) => 'default' | 'primary' | 'success' | 'warning' | 'info';
   onCheckChange: (key: string, checked: boolean) => void;
   onStretchChange: (key: string, isStretch: boolean) => void;
   onPlannedStretchChange: (key: string, isPlannedStretch: boolean) => void;
   onPointsChange: (key: string, value: string) => void;
+  onPriorityChange: (key: string, priority: string | null) => void;
 }
 
 const compactCellSx = { fontSize: '0.75rem', py: 0.25, px: 0.5 } as const;
 
-const EpicRow = ({ epic, isChecked, isStretch, isPlannedStretch, points, even, getStatusColor, onCheckChange, onStretchChange, onPlannedStretchChange, onPointsChange }: EpicRowProps) => (
+const PRIORITY_COLOR: Record<string, 'error' | 'warning' | 'default' | 'info' | 'success'> = {
+  Highest: 'error',
+  High: 'warning',
+  Medium: 'default',
+  Low: 'info',
+  Lowest: 'success',
+};
+
+const EpicRow = ({ epic, isChecked, isStretch, isPlannedStretch, points, priority, even, getStatusColor, onCheckChange, onStretchChange, onPlannedStretchChange, onPointsChange, onPriorityChange }: EpicRowProps) => (
   <TableRow
     hover
     sx={{
@@ -738,6 +780,25 @@ const EpicRow = ({ epic, isChecked, isStretch, isPlannedStretch, points, even, g
     <TableCell padding="checkbox" sx={compactCellSx}>
       <Checkbox checked={isChecked} onChange={(e) => onCheckChange(epic.key, e.target.checked)} size="small" sx={{ p: 0.25 }} />
     </TableCell>
+    <TableCell sx={{ ...compactCellSx, p: 0.25 }}>
+      <Select
+        size="small"
+        value={priority ?? ''}
+        onChange={(e) => onPriorityChange(epic.key, e.target.value || null)}
+        displayEmpty
+        sx={{
+          fontSize: '0.72rem',
+          width: '100%',
+          '& .MuiSelect-select': { py: '2px', px: '6px' },
+          ...(priority ? { color: `${PRIORITY_COLOR[priority] ?? 'default'}.main` } : {}),
+        }}
+      >
+        <MenuItem value=""><em style={{ fontSize: '0.72rem' }}>—</em></MenuItem>
+        {JIRA_PRIORITIES.map((p) => (
+          <MenuItem key={p} value={p} sx={{ fontSize: '0.72rem' }}>{p}</MenuItem>
+        ))}
+      </Select>
+    </TableCell>
     <TableCell sx={compactCellSx}>
       {JIRA_BASE_URL ? (
         <Link href={`${JIRA_BASE_URL}/browse/${epic.key}`} target="_blank" rel="noopener noreferrer" underline="hover" sx={{ fontSize: '0.75rem', fontWeight: 500, fontFamily: 'monospace', color: 'primary.main' }}>
@@ -747,13 +808,13 @@ const EpicRow = ({ epic, isChecked, isStretch, isPlannedStretch, points, even, g
         <Typography sx={{ fontSize: '0.75rem', fontWeight: 500, fontFamily: 'monospace' }}>{epic.key}</Typography>
       )}
     </TableCell>
-    <TableCell sx={compactCellSx}>
-      <Typography sx={{ fontSize: '0.75rem' }} noWrap>{epic.summary}</Typography>
+    <TableCell sx={{ ...compactCellSx, maxWidth: 0, overflow: 'hidden' }}>
+      <Typography sx={{ fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{epic.summary}</Typography>
     </TableCell>
     <TableCell sx={compactCellSx}>
       <Chip label={epic.status} size="small" color={getStatusColor(epic.status)} variant="outlined" sx={{ fontSize: '0.7rem', height: 20 }} />
     </TableCell>
-    <TableCell align="right" sx={compactCellSx}>
+    <TableCell align="right" sx={{ ...compactCellSx, pr: 0.5 }}>
       <Typography sx={{ fontSize: '0.75rem' }}>{epic.childStoryPoints}</Typography>
     </TableCell>
     <TableCell align="right" sx={{ ...compactCellSx, p: 0.25 }}>
@@ -764,13 +825,13 @@ const EpicRow = ({ epic, isChecked, isStretch, isPlannedStretch, points, even, g
         onChange={(e) => onPointsChange(epic.key, e.target.value)}
         disabled={!isChecked}
         inputProps={{ min: 0, step: 0.5, style: { fontSize: '0.75rem', padding: '2px 4px' } }}
-        sx={{ width: 70 }}
+        sx={{ width: 66 }}
       />
     </TableCell>
-    <TableCell align="center" sx={compactCellSx}>
+    <TableCell align="center" sx={{ ...compactCellSx, px: 0 }}>
       <Checkbox checked={isPlannedStretch} onChange={(e) => onPlannedStretchChange(epic.key, e.target.checked)} disabled={!isChecked} size="small" sx={{ p: 0.25 }} />
     </TableCell>
-    <TableCell align="center" sx={compactCellSx}>
+    <TableCell align="center" sx={{ ...compactCellSx, px: 0 }}>
       <Checkbox checked={isStretch} onChange={(e) => onStretchChange(epic.key, e.target.checked)} disabled={!isChecked} size="small" sx={{ p: 0.25 }} />
     </TableCell>
   </TableRow>

@@ -188,20 +188,14 @@ const analyzePuntedIssues = async (
 
             if (removedAt <= cutoff) {
               earlyPunted.add(key);
-              console.log(`[day1] early-punted   ${key}  removedAt=${entry.created}  cutoff=${cutoff.toISOString()} — NOT counting as day1`);
             } else if (removedDatePart === sprintEndDatePart) {
               lastDayPunted.add(key);
-              console.log(`[day1] lastday-punted ${key}  removedAt=${entry.created}  sprintEnd=${sprintEndDatePart} — counting as lastDay`);
-            } else {
-              console.log(`[day1] mid-punted     ${key}  removedAt=${entry.created} — counting as day1 only`);
             }
             return;
           }
         }
       }
 
-      // No removal entry found — conservatively keep as normal day-1
-      console.log(`[day1] no-removal-changelog  ${key}  (keeping as day1)`);
     } catch (err) {
       console.warn(`[day1] changelog fetch failed for punted ${key}:`, err);
     }
@@ -246,17 +240,12 @@ const getGracePeriodKeys = async (
             const addedAt = new Date(entry.created);
             if (addedAt <= cutoff) {
               graceKeys.add(key);
-              console.log(`[day1] grace-period ${key}  addedAt=${entry.created}  cutoff=${cutoff.toISOString()}`);
-            } else {
-              console.log(`[day1] scope-change  ${key}  addedAt=${entry.created}  cutoff=${cutoff.toISOString()}`);
             }
             return; // found the relevant entry — stop scanning
           }
         }
       }
 
-      // No matching changelog entry found — treat conservatively as scope change
-      console.log(`[day1] no-changelog  ${key}  (keeping as scope-change)`);
     } catch (err) {
       console.warn(`[day1] changelog fetch failed for ${key}:`, err);
     }
@@ -465,12 +454,7 @@ export const POST = async (request: NextRequest) => {
 
         const serviceDeskPromise = client.searchAllIssues(serviceDeskJql, ['timespent', 'status', 'summary']);
 
-        console.log(`[sprintReport] ${sprint.name} — calling getSprintReport(boardId=${boardId}, sprintId=${sprint.id})`);
         const sprintReport = await client.getSprintReport(boardId, sprint.id);
-        console.log(`[sprintReport] ${sprint.name} — completedIssues(${(sprintReport.contents.completedIssues ?? []).length}): [${(sprintReport.contents.completedIssues ?? []).map((i) => i.key).join(', ')}]`);
-        console.log(`[sprintReport] ${sprint.name} — issuesNotCompleted(${(sprintReport.contents.issuesNotCompletedInCurrentSprint ?? []).length}): [${(sprintReport.contents.issuesNotCompletedInCurrentSprint ?? []).map((i) => i.key).join(', ')}]`);
-        console.log(`[sprintReport] ${sprint.name} — puntedIssues(${(sprintReport.contents.puntedIssues ?? []).length}): [${(sprintReport.contents.puntedIssues ?? []).map((i) => i.key).join(', ')}]`);
-        console.log(`[sprintReport] ${sprint.name} — issueKeysAddedDuringSprint(${Object.keys(sprintReport.contents.issueKeysAddedDuringSprint ?? {}).length}): [${Object.keys(sprintReport.contents.issueKeysAddedDuringSprint ?? {}).join(', ')}]`);
 
         const [issuesResponse, serviceDeskResponse, sprintCapacity] = await Promise.all([
           client.searchAllIssues(jql),
@@ -486,7 +470,6 @@ export const POST = async (request: NextRequest) => {
         // were actually added before 8 PM on the official Wednesday start day are
         // treated as day-1 stories rather than scope changes.
         const day1Cutoff = computeDay1Cutoff(sprint.startDate);
-        console.log(`[day1] ${sprint.name} — day1Cutoff=${day1Cutoff.toISOString()}  (startDate=${sprint.startDate})`);
 
         const graceKeys = await getGracePeriodKeys(rawAddedKeys, sprint.id, day1Cutoff, client);
 
@@ -530,7 +513,6 @@ export const POST = async (request: NextRequest) => {
         let puntedIssues: (typeof issuesResponse.issues[number])[] = [];
         if (puntedDay1Keys.length > 0) {
           const puntedJql = `issuekey in (${puntedDay1Keys.join(',')})`;
-          console.log(`[day1] ${sprint.name} — fetching ${puntedDay1Keys.length} punted day1 issues  JQL: ${puntedJql}`);
           puntedIssues = (await client.searchAllIssues(puntedJql)).issues;
         }
 
@@ -542,10 +524,6 @@ export const POST = async (request: NextRequest) => {
         const sprintEndDatePart = (sprint.endDate ?? '').slice(0, 10);
         const { earlyPunted: earlyPuntedKeys, lastDayPunted: lastDayPuntedKeys } =
           await analyzePuntedIssues(puntedKeys, sprint.id, day1Cutoff, sprintEndDatePart, client);
-
-        console.log(`[day1] ${sprint.name} — JQL: ${jql}`);
-        console.log(`[day1] ${sprint.name} — ${issuesResponse.issues.length} end-of-sprint issues, ${puntedIssues.length} punted day1 issues, ${addedKeys.size} added mid-sprint: [${Array.from(addedKeys).join(', ')}]`);
-        console.log(`[day1] ${sprint.name} — day1Keys (${day1Keys.size}): [${Array.from(day1Keys).join(', ')}]`);
 
         // Per-engineer output map: key = lowercase display name.
         // Seeded from capacity data when available; falls back to assignee names
@@ -573,7 +551,6 @@ export const POST = async (request: NextRequest) => {
           const { ticket } = mapToTicketAutoEpic(issue, fieldConfig);
 
           if (isCanceledStatus(ticket.status)) {
-            console.log(`[day1]   SKIP canceled  ${ticket.key}`);
             continue;
           }
 
@@ -584,11 +561,6 @@ export const POST = async (request: NextRequest) => {
 
           // Skip entirely if not relevant to this sprint at all
           if (!isDay1Issue && !isLast && !isScopeChange) {
-            const known = (ticket.sprintIds ?? []).filter((id) => sprintStartDateMap.has(id));
-            const lastId = known.length > 0
-              ? known.reduce((best, id) => (sprintStartDateMap.get(id)! > sprintStartDateMap.get(best)! ? id : best), known[0])
-              : null;
-            console.log(`[day1]   SKIP not-last  ${ticket.key}  lastSprint=${lastId}  sprints=[${known.join(',')}]`);
             continue;
           }
 
@@ -600,14 +572,12 @@ export const POST = async (request: NextRequest) => {
             day1Points += points;
             categories.push('day1');
             if (day1UnpointedKeys.has(ticket.key)) categories.push('day1Unpointed');
-            console.log(`[day1]   day1        ${ticket.key}  pts=${points}  runningTotal=${day1Points}`);
           }
 
           // Scope change: added after Wednesday noon — count regardless of which sprint it landed in.
           if (isScopeChange) {
             scopeChangeInPoints += points;
             categories.push('scopeChange');
-            console.log(`[day1]   scopeChange(in) ${ticket.key}  pts=${points}`);
           }
 
           // lastDay / resolved only apply when this is the issue's last sprint
@@ -644,7 +614,6 @@ export const POST = async (request: NextRequest) => {
           const { ticket } = mapToTicketAutoEpic(issue, fieldConfig);
 
           if (isCanceledStatus(ticket.status)) {
-            console.log(`[day1]   SKIP punted-canceled  ${ticket.key}`);
             continue;
           }
           if (earlyPuntedKeys.has(ticket.key)) {
@@ -659,17 +628,13 @@ export const POST = async (request: NextRequest) => {
           if (lastDayPuntedKeys.has(ticket.key)) {
             lastDayPoints += points;
             puntedCategories.push('lastDay');
-            console.log(`[day1]   day1+lastDay(punted) ${ticket.key}  pts=${points}  runningTotal=${day1Points}`);
           } else {
             // Committed day-1 work removed mid-sprint = scope out
             scopeChangeOutPoints += points;
             puntedCategories.push('scopeChangeOut');
-            console.log(`[day1]   day1+scopeOut(punted) ${ticket.key}  pts=${points}  runningTotal=${day1Points}`);
           }
           issues.push({ key: ticket.key, summary: ticket.summary, sprintName: sprint.name, points, categories: puntedCategories });
         }
-
-        console.log(`[day1] ${sprint.name} — TOTAL day1=${day1Points}  scopeIn=${scopeChangeInPoints}  scopeOut=${scopeChangeOutPoints}  lastDay=${lastDayPoints}  resolved=${resolvedPoints}`);
 
         // Carryover = all stories not completed at sprint end:
         //   • issuesNotCompletedInCurrentSprint from the sprint report (in sprint at close, not done)
@@ -692,12 +657,9 @@ export const POST = async (request: NextRequest) => {
           const unfetchedKeys = [...carryoverCandidateKeys].filter((k) => !fetchedIssueMap.has(k));
           if (unfetchedKeys.length > 0) {
             const suppJql = `issuekey in (${unfetchedKeys.join(',')})`;
-            console.log(`[carryover] ${sprint.name} — supplemental fetch for ${unfetchedKeys.length} keys  JQL: ${suppJql}`);
             const suppResponse = await client.searchAllIssues(suppJql);
             for (const i of suppResponse.issues) fetchedIssueMap.set(i.key, i);
           }
-
-          console.log(`[carryover] ${sprint.name} — ${carryoverCandidateKeys.size} candidates: [${[...carryoverCandidateKeys].join(', ')}]`);
 
           for (const key of carryoverCandidateKeys) {
             const issue = fetchedIssueMap.get(key);

@@ -91,7 +91,6 @@ export const POST = async (request: NextRequest) => {
 
     // Fetch epic status and child stories in parallel
     const jql = `("Epic Link" = ${epicKey} OR parent = ${epicKey}) AND ${EXCLUDE_MAINFRAME} AND status != "Canceled" ORDER BY key ASC`;
-    console.log(`[Stories] Fetching stories for ${epicKey}: ${jql}`);
 
     const [epicIssue, response] = await Promise.all([
       client.getIssue(epicKey),
@@ -99,7 +98,6 @@ export const POST = async (request: NextRequest) => {
     ]);
 
     const epicStatus = epicIssue.fields.status.name;
-    console.log(`[Stories] Found ${response.issues.length} stories for ${epicKey} (epic status: ${epicStatus})`);
 
     // Build sprint ID filter set (if provided)
     const sprintFilterSet = sprintIds && sprintIds.length > 0
@@ -147,10 +145,6 @@ export const POST = async (request: NextRequest) => {
         status,
       });
     }
-
-    console.log(
-      `[Stories] Returning ${stories.length} stories for ${epicKey}${sprintFilterSet ? ` (filtered by ${sprintFilterSet.size} sprints)` : ''}`
-    );
 
     return NextResponse.json({ stories, epicStatus });
   } catch (error) {

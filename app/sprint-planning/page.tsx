@@ -89,6 +89,137 @@ const loadCapacityFromJira = async (
   }
 };
 
+// ── Grouped stacked column chart ─────────────────────────────────────
+
+const GRP_BAR_W = 56;
+const GRP_BAR_GAP = 10;
+const GRP_CHART_H = 200;
+const GRP_PAD = { top: 20, right: 12, bottom: 36, left: 36 };
+// Warm/earthy palette — intentionally distinct from EPIC_COLORS (blues/purples)
+const ENGINEER_COLORS = [
+  '#e65100', // deep orange
+  '#f9a825', // amber
+  '#558b2f', // lime green
+  '#00838f', // cyan dark
+  '#6d4c41', // brown
+  '#bf360c', // deep orange dark
+  '#f57f17', // yellow dark
+  '#33691e', // green dark
+  '#00695c', // teal dark
+  '#4e342e', // brown dark
+  '#e64a19', // deep orange 700
+  '#ff8f00', // amber dark
+  '#689f38', // light green
+  '#0097a7', // cyan
+  '#5d4037', // brown 600
+];
+
+interface StackedSegment { label: string; value: number; color: string }
+
+interface GroupedStackedChartProps {
+  leftSegments: StackedSegment[];
+  leftTotal: number;
+  leftLabel: string;
+  rightSegments: StackedSegment[];
+  rightTotal: number;
+  rightLabel: string;
+}
+
+const GroupedStackedChart = ({ leftSegments, leftTotal, leftLabel, rightSegments, rightTotal, rightLabel }: GroupedStackedChartProps) => {
+  const maxVal = Math.max(leftTotal, rightTotal, 1);
+  const plotH = GRP_CHART_H;
+  const ticks = 4;
+  const svgW = GRP_PAD.left + GRP_BAR_W * 2 + GRP_BAR_GAP + GRP_PAD.right;
+  const svgH = plotH + GRP_PAD.top + GRP_PAD.bottom;
+  const bar1X = GRP_PAD.left;
+  const bar2X = GRP_PAD.left + GRP_BAR_W + GRP_BAR_GAP;
+
+  const buildRects = (segs: StackedSegment[]) => {
+    const rects: { seg: StackedSegment; y: number; h: number }[] = [];
+    let cursor = plotH;
+    for (const seg of segs) {
+      if (seg.value === 0) continue;
+      const h = (seg.value / maxVal) * plotH;
+      cursor -= h;
+      rects.push({ seg, y: cursor, h });
+    }
+    return rects;
+  };
+
+  const leftRects = buildRects(leftSegments);
+  const rightRects = buildRects(rightSegments);
+
+  return (
+    <Box sx={{ flexShrink: 0 }}>
+      <svg width={svgW} height={svgH} style={{ display: 'block' }}>
+        <g transform={`translate(0,${GRP_PAD.top})`}>
+          {/* Y-axis grid + ticks */}
+          {Array.from({ length: ticks + 1 }, (_, i) => {
+            const val = Math.round((maxVal / ticks) * i * 10) / 10;
+            const y = plotH - (val / maxVal) * plotH;
+            return (
+              <g key={i}>
+                <line x1={GRP_PAD.left - 3} y1={y} x2={bar2X + GRP_BAR_W} y2={y} stroke="#e0e0e0" strokeWidth={1} />
+                <text x={GRP_PAD.left - 5} y={y + 4} textAnchor="end" fontSize={9} fill="#9e9e9e">{val}</text>
+              </g>
+            );
+          })}
+
+          {/* Left bar (capacity by engineer) */}
+          {leftRects.map(({ seg, y, h }) => (
+            <g key={seg.label}>
+              <rect x={bar1X} y={y} width={GRP_BAR_W} height={h} fill={seg.color} stroke="white" strokeWidth={h > 3 ? 1 : 0} opacity={0.88} />
+              {h >= 14 && (
+                <text x={bar1X + GRP_BAR_W / 2} y={y + h / 2 + 4} textAnchor="middle" fontSize={9} fill="white" style={{ pointerEvents: 'none' }}>
+                  {Math.round(seg.value * 10) / 10}
+                </text>
+              )}
+            </g>
+          ))}
+          <text x={bar1X + GRP_BAR_W / 2} y={-6} textAnchor="middle" fontSize={11} fontWeight="bold" fill="#424242">{leftTotal}</text>
+          <text x={bar1X + GRP_BAR_W / 2} y={plotH + 14} textAnchor="middle" fontSize={10} fill="#424242">{leftLabel}</text>
+
+          {/* Right bar (epics by points) */}
+          {rightRects.map(({ seg, y, h }) => (
+            <g key={seg.label}>
+              <rect x={bar2X} y={y} width={GRP_BAR_W} height={h} fill={seg.color} stroke="white" strokeWidth={h > 3 ? 1 : 0} opacity={0.88} />
+              {h >= 14 && (
+                <text x={bar2X + GRP_BAR_W / 2} y={y + h / 2 + 4} textAnchor="middle" fontSize={9} fill="white" style={{ pointerEvents: 'none' }}>
+                  {seg.value}
+                </text>
+              )}
+            </g>
+          ))}
+          <text x={bar2X + GRP_BAR_W / 2} y={-6} textAnchor="middle" fontSize={11} fontWeight="bold" fill="#424242">{rightTotal}</text>
+          <text x={bar2X + GRP_BAR_W / 2} y={plotH + 14} textAnchor="middle" fontSize={10} fill="#424242">{rightLabel}</text>
+
+          {/* Baseline */}
+          <line x1={GRP_PAD.left} y1={plotH} x2={bar2X + GRP_BAR_W} y2={plotH} stroke="#424242" strokeWidth={1} />
+        </g>
+      </svg>
+      {/* Legends side by side */}
+      <Box sx={{ display: 'flex', gap: 2, mt: 0.5 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, minWidth: GRP_BAR_W + 12 }}>
+          {leftSegments.filter((s) => s.value > 0).map((seg) => (
+            <Box key={seg.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Box sx={{ width: 7, height: 7, borderRadius: '1px', bgcolor: seg.color, flexShrink: 0 }} />
+              <Typography variant="caption" sx={{ fontSize: '0.62rem', lineHeight: 1.2, color: 'text.secondary' }} noWrap>{seg.label}</Typography>
+            </Box>
+          ))}
+        </Box>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, minWidth: GRP_BAR_W + 12 }}>
+          {rightSegments.filter((s) => s.value > 0).map((seg) => (
+            <Box key={seg.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Box sx={{ width: 7, height: 7, borderRadius: '1px', bgcolor: seg.color, flexShrink: 0 }} />
+              <Typography variant="caption" sx={{ fontSize: '0.62rem', lineHeight: 1.2, color: 'text.secondary' }} noWrap>{seg.label}</Typography>
+            </Box>
+          ))}
+        </Box>
+      </Box>
+    </Box>
+  );
+};
+
 // ── Capacity vs Points bar chart ──────────────────────────────────────
 
 interface CapacityVsPointsChartProps {
@@ -870,15 +1001,32 @@ const SprintPlanningContent = () => {
                   highlightedKey={highlightedKey}
                   onRowClick={handleEpicHighlight}
                 />
-                {savedCapacity && (
-                  <CapacityVsPointsChart
-                    totalCapacity={savedCapacity.totalCapacity}
-                    parents={data.parents}
-                    highlightedKey={highlightedKey}
-                    onEpicClick={handleEpicHighlight}
-                  />
-                )}
                 {savedCapacity && <CapacityGrid capacityData={savedCapacity} />}
+                {savedCapacity && (() => {
+                  const supportFactor = 1 - savedCapacity.supportPct / 100;
+                  const engSegs = savedCapacity.engineers
+                    .filter((e) => !e.isTechLead && e.capacity > 0)
+                    .map((e, i) => ({
+                      label: e.name,
+                      value: Math.round(e.capacity * supportFactor * 10) / 10,
+                      color: ENGINEER_COLORS[i % ENGINEER_COLORS.length],
+                    }));
+                  const epicSegs = data.parents.map((p, i) => ({
+                    label: p.parentSummary,
+                    value: p.points,
+                    color: EPIC_COLORS[i % EPIC_COLORS.length],
+                  }));
+                  return (
+                    <GroupedStackedChart
+                      leftSegments={engSegs}
+                      leftTotal={savedCapacity.totalCapacity}
+                      leftLabel="Capacity"
+                      rightSegments={epicSegs}
+                      rightTotal={data.totalPoints}
+                      rightLabel="Points"
+                    />
+                  );
+                })()}
               </Box>
 
               <Divider sx={{ mb: 3 }} />
