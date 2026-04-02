@@ -29,6 +29,7 @@ export interface PiStatusStory {
   summary: string;
   points: number | null;
   status: string;
+  sprint: string | null;
 }
 
 export interface EpicStatusData {
@@ -92,7 +93,9 @@ export const POST = async (request: NextRequest) => {
           const labels: string[] = (epicIssue.fields.labels as string[]) ?? [];
           const isStretch = labels.some((l) => l.toLowerCase() === 'stretch');
 
-          // Fetch child stories
+          // Fetch child stories (sprint field is in default fields via fieldConfig)
+          const fieldConfig2 = client.getFieldConfig();
+          const sprintField = fieldConfig2.sprint;
           const storiesJql = `("Epic Link" = ${epicKey} OR parent = ${epicKey}) AND ${EXCLUDE_MAINFRAME} ORDER BY key ASC`;
           const storiesResponse = await client.searchAllIssues(storiesJql, [
             STORY_POINT_ESTIMATE_FIELD,
@@ -132,11 +135,16 @@ export const POST = async (request: NextRequest) => {
               resolvedCount++;
               resolvedPoints += pts;
             } else {
+              const rawSprint = sprintField ? issue.fields[sprintField] : undefined;
+              const sprintName = Array.isArray(rawSprint) && rawSprint.length > 0
+                ? ((rawSprint[rawSprint.length - 1] as { name?: string })?.name ?? null)
+                : null;
               remainingStories.push({
                 key: issue.key,
                 summary: issue.fields.summary,
                 points,
                 status,
+                sprint: sprintName,
               });
             }
           }

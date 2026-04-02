@@ -25,7 +25,7 @@ export interface ParentGroup {
   percent: number;
 }
 
-export type ReadinessLabel = 'Ready-For-Sprint' | 'Needs-Refinement' | 'New';
+export type ReadinessLabel = 'Ready-For-Sprint' | 'Needs-Refinement';
 
 export interface StoryRow {
   key: string;
@@ -147,11 +147,13 @@ export const POST = async (request: NextRequest) => {
         parentMap.set(parentKey, { summary: parentSummary, points });
       }
 
-      // Determine readiness from labels
+      // Determine readiness: label takes precedence, then fall back to whether story points exist
       const labels: string[] = Array.isArray(issue.fields.labels) ? issue.fields.labels as string[] : [];
       const hasReady = labels.some((l) => l === 'Ready-For-Sprint');
       const hasNeeds = labels.some((l) => l === 'Needs-Refinement');
-      const readiness: ReadinessLabel = hasReady ? 'Ready-For-Sprint' : hasNeeds ? 'Needs-Refinement' : 'New';
+      const readiness: ReadinessLabel = hasNeeds ? 'Needs-Refinement'
+        : (hasReady || points > 0) ? 'Ready-For-Sprint'
+        : 'Needs-Refinement';
 
       if (isCompletedStatus(issue.fields.status.name)) {
         completedPoints += points;

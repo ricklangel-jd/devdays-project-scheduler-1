@@ -362,6 +362,7 @@ const EpicCard = ({ epic }: { epic: EpicStatusData }) => {
               <TableRow>
                 <TableCell sx={{ ...compactHeaderSx, width: 100 }}>Key</TableCell>
                 <TableCell sx={compactHeaderSx}>Summary</TableCell>
+                <TableCell sx={{ ...compactHeaderSx, width: 140 }}>Sprint</TableCell>
                 <TableCell sx={{ ...compactHeaderSx, textAlign: 'right', width: 90 }}>Story Points</TableCell>
                 <TableCell sx={{ ...compactHeaderSx, width: 110 }}>Status</TableCell>
               </TableRow>
@@ -386,6 +387,9 @@ const EpicCard = ({ epic }: { epic: EpicStatusData }) => {
                   </TableCell>
                   <TableCell sx={{ ...compactCellSx, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {story.summary}
+                  </TableCell>
+                  <TableCell sx={{ ...compactCellSx, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {story.sprint ?? '—'}
                   </TableCell>
                   <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
                     {story.points ?? '—'}

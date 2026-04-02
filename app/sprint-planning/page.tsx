@@ -482,11 +482,10 @@ const EpicPieChart = ({ parents, highlightedKey, onSliceClick }: EpicPieChartPro
 
 // ── Readiness pie (reused for count + points) ────────────────────────
 
-const READINESS_ORDER: ReadinessLabel[] = ['Ready-For-Sprint', 'Needs-Refinement', 'New'];
+const READINESS_ORDER: ReadinessLabel[] = ['Ready-For-Sprint', 'Needs-Refinement'];
 const READINESS_COLORS: Record<ReadinessLabel, string> = {
   'Ready-For-Sprint': '#2e7d32',
   'Needs-Refinement': '#ed6c02',
-  'New': '#9e9e9e',
 };
 
 interface ReadinessBucket {
@@ -514,6 +513,10 @@ const ReadinessPie = ({ buckets, valueKey, highlightedReadiness, onSliceClick }:
     [buckets, valueKey]
   );
 
+  // When all stories fall into one bucket the arc path degenerates (start = end point).
+  // Render a plain circle instead.
+  const isFull = slices.length === 1;
+
   if (slices.length === 0) return null;
 
   return (
@@ -523,20 +526,24 @@ const ReadinessPie = ({ buckets, valueKey, highlightedReadiness, onSliceClick }:
         const isHighlighted = highlightedReadiness === label;
         const isDimmed = highlightedReadiness !== null && !isHighlighted;
         let transform = '';
-        if (isHighlighted) {
+        if (isHighlighted && !isFull) {
           const mid = (startAngle + endAngle) / 2;
           transform = `translate(${6 * Math.cos(mid)}, ${6 * Math.sin(mid)})`;
         }
         return (
           <g key={key} onClick={() => onSliceClick(label)} style={{ cursor: 'pointer' }} transform={transform}>
-            <path
-              d={pathD}
-              fill={color}
-              stroke="white"
-              strokeWidth={2}
-              opacity={isDimmed ? 0.3 : 1}
-              style={{ transition: 'opacity 0.2s ease' }}
-            />
+            {isFull ? (
+              <circle cx={PIE_CENTER} cy={PIE_CENTER} r={PIE_RADIUS} fill={color} opacity={isDimmed ? 0.3 : 1} style={{ transition: 'opacity 0.2s ease' }} />
+            ) : (
+              <path
+                d={pathD}
+                fill={color}
+                stroke="white"
+                strokeWidth={2}
+                opacity={isDimmed ? 0.3 : 1}
+                style={{ transition: 'opacity 0.2s ease' }}
+              />
+            )}
             {/* Center label showing value */}
             {value > 0 && (() => {
               const mid = (startAngle + endAngle) / 2;
@@ -666,16 +673,14 @@ const PlanningTable = ({ parents, highlightedKey, onRowClick }: PlanningTablePro
 
 type StorySortField = 'key' | 'summary' | 'points' | 'status' | 'readiness';
 
-const READINESS_CHIP_PROPS: Record<ReadinessLabel, { label: string; color: 'success' | 'warning' | 'default' }> = {
-  'Ready-For-Sprint': { label: 'Ready-For-Sprint', color: 'success' },
-  'Needs-Refinement': { label: 'Needs-Refinement', color: 'warning' },
-  'New': { label: 'New', color: 'default' },
+const READINESS_CHIP_PROPS: Record<ReadinessLabel, { label: string; color: 'success' | 'warning' }> = {
+  'Ready-For-Sprint': { label: 'Ready', color: 'success' },
+  'Needs-Refinement': { label: 'Needs Refinement', color: 'warning' },
 };
 
 const READINESS_SORT_ORDER: Record<ReadinessLabel, number> = {
   'Ready-For-Sprint': 0,
   'Needs-Refinement': 1,
-  'New': 2,
 };
 
 interface StoryTableProps {
@@ -943,7 +948,6 @@ const SprintPlanningContent = () => {
     const map: Record<ReadinessLabel, { count: number; points: number }> = {
       'Ready-For-Sprint': { count: 0, points: 0 },
       'Needs-Refinement': { count: 0, points: 0 },
-      'New': { count: 0, points: 0 },
     };
     for (const story of data.stories) {
       map[story.readiness].count += 1;
@@ -1042,19 +1046,6 @@ const SprintPlanningContent = () => {
                   <ReadinessPie
                     buckets={readinessBuckets}
                     valueKey="count"
-                    highlightedReadiness={highlightedReadiness}
-                    onSliceClick={handleReadinessSliceClick}
-                  />
-                </Box>
-
-                {/* Points pie */}
-                <Box sx={{ flexShrink: 0 }}>
-                  <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600, textAlign: 'center' }}>
-                    Story Readiness By Points
-                  </Typography>
-                  <ReadinessPie
-                    buckets={readinessBuckets}
-                    valueKey="points"
                     highlightedReadiness={highlightedReadiness}
                     onSliceClick={handleReadinessSliceClick}
                   />

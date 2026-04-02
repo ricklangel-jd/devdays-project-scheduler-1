@@ -9,7 +9,7 @@ export interface ParentGroup {
   percent: number;
 }
 
-export type ReadinessLabel = 'Ready-For-Sprint' | 'Needs-Refinement' | 'New';
+export type ReadinessLabel = 'Ready-For-Sprint' | 'Needs-Refinement';
 
 export interface StoryRow {
   key: string;
