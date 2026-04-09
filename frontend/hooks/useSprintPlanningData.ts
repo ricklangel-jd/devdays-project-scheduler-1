@@ -37,6 +37,8 @@ interface CachedData {
 
 interface UseSprintPlanningDataResult {
   data: SprintPlanningData | null;
+  /** The sprint ID that `data` was loaded for. Use to guard against stale data. */
+  dataSprintId: number | null;
   isLoading: boolean;
   error: string | null;
   generate: (sprintId: number, boardId: number) => Promise<void>;
@@ -45,6 +47,7 @@ interface UseSprintPlanningDataResult {
 
 export const useSprintPlanningData = (): UseSprintPlanningDataResult => {
   const [data, setData] = useState<SprintPlanningData | null>(null);
+  const [dataSprintId, setDataSprintId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,6 +57,7 @@ export const useSprintPlanningData = (): UseSprintPlanningDataResult => {
     const cached = cachedDataRef.current;
     if (cached && cached.sprintId === sprintId && cached.boardId === boardId) {
       setData(cached.data);
+      setDataSprintId(sprintId);
       return;
     }
 
@@ -76,10 +80,12 @@ export const useSprintPlanningData = (): UseSprintPlanningDataResult => {
       const result: SprintPlanningData = responseData;
       cachedDataRef.current = { sprintId, boardId, data: result };
       setData(result);
+      setDataSprintId(sprintId);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       setError(message);
       setData(null);
+      setDataSprintId(null);
     } finally {
       setIsLoading(false);
     }
@@ -87,9 +93,10 @@ export const useSprintPlanningData = (): UseSprintPlanningDataResult => {
 
   const clear = useCallback(() => {
     setData(null);
+    setDataSprintId(null);
     setError(null);
     cachedDataRef.current = null;
   }, []);
 
-  return { data, isLoading, error, generate, clear };
+  return { data, dataSprintId, isLoading, error, generate, clear };
 };

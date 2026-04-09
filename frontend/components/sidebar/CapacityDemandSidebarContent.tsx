@@ -7,6 +7,7 @@ import Typography from '@mui/material/Typography';
 import TextField from '@mui/material/TextField';
 import Autocomplete from '@mui/material/Autocomplete';
 import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import Alert from '@mui/material/Alert';
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
@@ -59,10 +60,12 @@ interface CapacityDemandSidebarContentProps {
   isGenerating?: boolean;
   /** When false, hides the manual Team Size / Support% / Days Off controls (used when capacity comes from Jira) */
   showCapacityControls?: boolean;
+  showAllWork?: boolean;
   onPILabelsChange: (labels: string[]) => void;
   onDeveloperCountChange?: (count: number) => void;
   onSupportPercentChange?: (pct: number) => void;
   onPiDaysOffChange?: (piDaysOff: Record<string, number>) => void;
+  onShowAllWorkChange?: (value: boolean) => void;
 }
 
 const CapacityDemandSidebarContent = ({
@@ -73,10 +76,12 @@ const CapacityDemandSidebarContent = ({
   piDaysOff = {},
   isGenerating = false,
   showCapacityControls = true,
+  showAllWork = false,
   onPILabelsChange,
   onDeveloperCountChange,
   onSupportPercentChange,
   onPiDaysOffChange,
+  onShowAllWorkChange,
 }: CapacityDemandSidebarContentProps) => {
   const hasProjectSelected = !!projectKey;
   const hasPIsSelected = piLabels.length > 0;
@@ -135,6 +140,26 @@ const CapacityDemandSidebarContent = ({
           </Typography>
         )}
       </Box>
+
+      {onShowAllWorkChange && (
+        <>
+          <Divider />
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={showAllWork}
+                onChange={(e) => onShowAllWorkChange(e.target.checked)}
+                size="small"
+                disabled={!hasPIsSelected}
+              />
+            }
+            label={
+              <Typography variant="body2">Show All Work</Typography>
+            }
+            sx={{ mx: 0 }}
+          />
+        </>
+      )}
 
       {showCapacityControls && (
         <>

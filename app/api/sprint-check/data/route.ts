@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getJiraClient, EXCLUDE_MAINFRAME, mapToTicketAutoEpic, mapToSprints } from '@/backend/jira';
 import type { FieldConfig } from '@/backend/jira/mappers';
 import type { JiraIssueResponse } from '@/shared/types';
+import { buildSprintDateMap, getLatestSprintId } from '@/shared/utils/sprints';
 
 /**
  * Jira built-in field for "Story point estimate" -- used as fallback
@@ -150,11 +151,12 @@ export const POST = async (request: NextRequest) => {
 
     const selectedSprintIdSet = new Set(sprintIds);
 
-    // Build sprint name lookup
+    // Build sprint name lookup and date map
     const sprintNameMap = new Map<number, string>();
     for (const s of sprints) {
       sprintNameMap.set(s.id, s.name);
     }
+    const sprintDateMap = buildSprintDateMap(sprints);
 
     // Map tickets and aggregate per-sprint per-engineer
     // Map: sprintId -> engineer -> totalPoints
@@ -176,10 +178,11 @@ export const POST = async (request: NextRequest) => {
 
       const points = computeSprintCheckPoints(issue, ticket.key, fieldConfig);
 
-      // Attribute to each selected sprint the ticket belongs to
-      const ticketSprints = (ticket.sprintIds ?? []).filter((sid) => selectedSprintIdSet.has(sid));
-      for (const sid of ticketSprints) {
-        const sprintMap = aggregation.get(sid)!;
+      // Attribute to the latest sprint among the selected sprints the ticket belongs to
+      const applicableSprints = (ticket.sprintIds ?? []).filter((sid) => selectedSprintIdSet.has(sid));
+      const latestSprintId = getLatestSprintId(applicableSprints, sprintDateMap);
+      if (latestSprintId !== null) {
+        const sprintMap = aggregation.get(latestSprintId)!;
         sprintMap.set(engineer, (sprintMap.get(engineer) ?? 0) + points);
 
         tickets.push({
@@ -188,8 +191,8 @@ export const POST = async (request: NextRequest) => {
           storyPoints: points,
           status: ticket.status,
           engineer,
-          sprintId: sid,
-          sprintName: sprintNameMap.get(sid) ?? `Sprint ${sid}`,
+          sprintId: latestSprintId,
+          sprintName: sprintNameMap.get(latestSprintId) ?? `Sprint ${latestSprintId}`,
         });
       }
     }
@@ -230,9 +233,19 @@ export const POST = async (request: NextRequest) => {
         const currentTicketsResponse = await client.getSprintTickets([active.id]);
         currentEngineerMap = new Map();
 
+        // Build an extended date map that includes the active sprint
+        const activeDateMap = new Map(sprintDateMap);
+        if (active.startDate && active.endDate) {
+          activeDateMap.set(active.id, { startDate: active.startDate, endDate: active.endDate });
+        }
+
         for (const issue of currentTicketsResponse.issues) {
           const { ticket } = mapToTicketAutoEpic(issue, fieldConfig);
           if (isCanceledStatus(ticket.status)) continue;
+
+          // Only count if active sprint is the latest sprint for this ticket
+          const latestId = getLatestSprintId(ticket.sprintIds ?? [], activeDateMap);
+          if (latestId !== active.id) continue;
 
           const engineer = ticket.assignee ?? 'Unassigned';
           const pts = computeSprintCheckPoints(issue, ticket.key, fieldConfig);
@@ -267,7 +280,7 @@ export const POST = async (request: NextRequest) => {
 
       const summary = (issue.fields.summary as string) ?? issue.key;
 
-      // Determine which selected sprint(s) this ticket belongs to and use the first match
+      // Determine which selected sprint this ticket belongs to using latest-sprint logic
       const rawSprints = issue.fields[fieldConfig.sprint];
       const ticketSprintIds: number[] = Array.isArray(rawSprints)
         ? (rawSprints as { id: number }[]).map((s) => s.id)
@@ -275,7 +288,8 @@ export const POST = async (request: NextRequest) => {
           ? [(rawSprints as { id: number }).id]
           : [];
 
-      const matchedSprintId = ticketSprintIds.find((sid) => selectedSprintIdSet.has(sid));
+      const applicableSprintIds = ticketSprintIds.filter((sid) => selectedSprintIdSet.has(sid));
+      const matchedSprintId = getLatestSprintId(applicableSprintIds, sprintDateMap);
       const sprintName = matchedSprintId ? (sprintNameMap.get(matchedSprintId) ?? `Sprint ${matchedSprintId}`) : 'Unknown Sprint';
 
       supportTickets.push({ key: issue.key, summary, status, sprintName });

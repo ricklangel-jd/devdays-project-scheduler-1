@@ -64,7 +64,6 @@ const NAV_MENUS = [
       { label: 'Schedule View', path: '/' },
       { label: 'Sprint View', path: '/sprint-view' },
       { label: 'Capacity v Demand', path: '/capacity-v-demand' },
-      { label: 'All Work', path: '/all-work' },
       { label: 'PI Planning', path: '/pi-planning' },
       { label: 'Sprint Planning', path: '/sprint-planning' },
       { label: 'Capacity', path: '/capacity' },
@@ -80,6 +79,12 @@ const NAV_MENUS = [
       { label: 'Pointing Accuracy', path: '/pointing-accuracy' },
     ],
   },
+  {
+    label: 'Project Status',
+    items: [
+      { label: 'Initiative Status', path: '/initiative-status' },
+    ],
+  },
 ] as const;
 
 interface HeaderProps {
@@ -89,8 +94,21 @@ interface HeaderProps {
   };
 }
 
-const Header = ({ connectionStatus }: HeaderProps) => {
+const Header = ({ connectionStatus: connectionStatusProp }: HeaderProps) => {
   const pathname = usePathname();
+  const [internalConnectionStatus, setInternalConnectionStatus] = useState<{ connected: boolean; email?: string } | null>(null);
+
+  useEffect(() => {
+    if (connectionStatusProp !== undefined) return; // prop takes precedence — no need to fetch
+    let cancelled = false;
+    fetch('/api/auth/validate')
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setInternalConnectionStatus({ connected: d.valid, email: d.email }); })
+      .catch(() => { if (!cancelled) setInternalConnectionStatus({ connected: false }); });
+    return () => { cancelled = true; };
+  }, [connectionStatusProp]);
+
+  const connectionStatus = connectionStatusProp ?? internalConnectionStatus;
   const router = useRouter();
   const searchParams = useSearchParams();
   const searchParamsRef = useRef(searchParams);
@@ -280,7 +298,7 @@ const Header = ({ connectionStatus }: HeaderProps) => {
               disabled={isSprintMetrics || !projectKey}
             />
           </Box>
-          {connectionStatus?.connected ? (
+          {connectionStatus === null ? null : connectionStatus.connected ? (
             <Chip
               icon={<CheckCircleIcon />}
               label={`Connected: ${connectionStatus.email}`}

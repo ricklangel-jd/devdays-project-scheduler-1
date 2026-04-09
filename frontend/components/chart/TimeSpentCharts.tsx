@@ -1,13 +1,66 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import DownloadIcon from '@mui/icons-material/Download';
 import { EPIC_COLORS } from '@/shared/constants';
 import type { TimeSpentData, InitiativeInfo, EpicInfo } from '@/frontend/hooks/useTimeSpentData';
+
+// ── CSV export ────────────────────────────────────────────────────────
+
+/** Escape a value for CSV: wrap in quotes if it contains a comma, quote, or newline. */
+const csvCell = (value: string | number): string => {
+  const str = String(value);
+  if (/[",\n\r]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+  return str;
+};
+
+const buildCsvContent = (data: TimeSpentData): string => {
+  const rows: string[] = ['Key,Summary,Points'];
+  for (const initiative of data.initiatives) {
+    for (const epic of initiative.epics) {
+      rows.push(`${csvCell(epic.key)},${csvCell(epic.summary)},${csvCell(epic.totalPoints)}`);
+    }
+  }
+  return rows.join('\r\n');
+};
+
+const saveEpicsCsv = async (data: TimeSpentData): Promise<void> => {
+  const csv = buildCsvContent(data);
+
+  // Use the File System Access API for a native Save As dialog where available
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const win = window as any;
+  if (typeof window !== 'undefined' && typeof win.showSaveFilePicker === 'function') {
+    try {
+      const handle = await win.showSaveFilePicker({
+        suggestedName: 'epics.csv',
+        types: [{ description: 'CSV Spreadsheet', accept: { 'text/csv': ['.csv'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(csv);
+      await writable.close();
+      return;
+    } catch (err) {
+      // User cancelled — no fallback needed
+      if ((err as { name?: string }).name === 'AbortError') return;
+      // Other error — fall through to anchor download
+    }
+  }
+
+  // Fallback: trigger browser download
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'epics.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+};
 
 const JIRA_BASE_URL = process.env.NEXT_PUBLIC_JIRA_BASE_URL || '';
 
@@ -176,6 +229,7 @@ const PieChart = ({
 };
 
 const TimeSpentCharts = ({ data, selectedInitiative, selectedEpic, onInitiativeSelect, onEpicSelect }: TimeSpentChartsProps) => {
+  const handleExport = useCallback(() => saveEpicsCsv(data), [data]);
   // Build initiative pie slices
   const initiativeSlices = useMemo((): PieSlice[] => {
     const totalPoints = data.initiatives.reduce((sum, init) => sum + init.totalPoints, 0);
@@ -242,6 +296,16 @@ const TimeSpentCharts = ({ data, selectedInitiative, selectedEpic, onInitiativeS
 
   return (
     <Paper sx={{ px: 3, py: 2, m: 2 }} elevation={1}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
+        <Button
+          variant="outlined"
+          size="small"
+          startIcon={<DownloadIcon />}
+          onClick={handleExport}
+        >
+          Export Epics
+        </Button>
+      </Box>
       <Box sx={{ display: 'flex', gap: 6, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         {/* Initiative pie chart */}
         <PieChart

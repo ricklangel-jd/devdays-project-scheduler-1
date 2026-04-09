@@ -16,6 +16,7 @@ export interface SprintMetricsIssue {
   sprintName: string;
   points: number;
   categories: string[];
+  assignee: string | null;
 }
 
 export interface SprintMetricsRow {
@@ -37,6 +38,7 @@ export interface SprintMetricsRow {
   jiraCapacity: number | null;
   jiraEngineerCount: number | null;
   engineerOutputs: EngOutputRow[] | null;
+  engineerRows: Array<{ name: string; daysOut: number; capacityPct: number }> | null;
 }
 
 export interface SprintMetricsGrid {

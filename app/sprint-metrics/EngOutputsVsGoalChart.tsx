@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState, useEffect } from 'react';
 import Box from '@mui/material/Box';
+import Link from '@mui/material/Link';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Table from '@mui/material/Table';
@@ -13,6 +14,8 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import type { SprintMetricsData } from '@/frontend/hooks/useSprintMetricsData';
+
+const JIRA_BASE_URL = process.env.NEXT_PUBLIC_JIRA_BASE_URL || '';
 
 // ── Chart constants ──────────────────────────────────────────────────
 
@@ -86,6 +89,12 @@ const EngOutputsVsGoalChart = ({ data }: EngOutputsVsGoalChartProps) => {
   const [selectedProjectKey, setSelectedProjectKey] = useState('ALL');
   const [selectedOffset, setSelectedOffset] = useState<number>(defaultOffset);
 
+  // Selected engineer for the story drill-down
+  const [selectedEng, setSelectedEng] = useState<{ projectKey: string; name: string } | null>(null);
+
+  // Clear selection when the sprint or project filter changes
+  useEffect(() => { setSelectedEng(null); }, [selectedOffset, selectedProjectKey]);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -158,6 +167,18 @@ const EngOutputsVsGoalChart = ({ data }: EngOutputsVsGoalChartProps) => {
     };
   }, [maxVal, chartHeight]);
 
+  // Stories resolved by the selected engineer in the selected sprint
+  const selectedStories = useMemo(() => {
+    if (!selectedEng) return [];
+    const grid = data.grids.find((g) => g.offset === selectedOffset);
+    if (!grid) return [];
+    const row = grid.rows.find((r) => r.projectKey === selectedEng.projectKey);
+    if (!row) return [];
+    return row.issues.filter(
+      (issue) => issue.categories.includes('resolved') && issue.assignee === selectedEng.name
+    );
+  }, [data, selectedOffset, selectedEng]);
+
   const groupCount = engRows.length;
   const groupWidth = groupCount > 0 ? chartWidth / groupCount : 0;
   const innerWidth = groupWidth * (1 - GROUP_GAP);
@@ -224,8 +245,9 @@ const EngOutputsVsGoalChart = ({ data }: EngOutputsVsGoalChartProps) => {
                   {engRows.map((eng, idx) => {
                     const diff = Math.round((eng.resolvedPoints - eng.capacity) * 10) / 10;
                     const color = eng.capacity > 0 ? resolvedColor(eng.resolvedPoints, eng.capacity) : undefined;
+                    const isSelected = selectedEng?.projectKey === eng.projectKey && selectedEng?.name === eng.name;
                     return (
-                      <TableRow key={`${eng.projectKey}-${eng.name}-${idx}`} hover sx={{ '&:nth-of-type(even)': { bgcolor: 'grey.50' } }}>
+                      <TableRow key={`${eng.projectKey}-${eng.name}-${idx}`} hover sx={{ '&:nth-of-type(even)': { bgcolor: 'grey.50' }, ...(isSelected ? { bgcolor: 'action.selected' } : {}) }}>
                         {multiProject && <TableCell sx={compactCellSx}>{eng.projectName}</TableCell>}
                         <TableCell sx={compactCellSx}>{eng.name}</TableCell>
                         {showCapacity && (
@@ -233,7 +255,17 @@ const EngOutputsVsGoalChart = ({ data }: EngOutputsVsGoalChartProps) => {
                             {eng.capacity > 0 ? eng.capacity : '—'}
                           </TableCell>
                         )}
-                        <TableCell sx={{ ...compactCellSx, textAlign: 'right', ...(color ? { color, fontWeight: 600 } : {}) }}>
+                        <TableCell
+                          sx={{
+                            ...compactCellSx,
+                            textAlign: 'right',
+                            ...(color ? { color, fontWeight: 600 } : {}),
+                            cursor: 'pointer',
+                            textDecoration: isSelected ? 'underline' : 'none',
+                            '&:hover': { textDecoration: 'underline' },
+                          }}
+                          onClick={() => setSelectedEng(isSelected ? null : { projectKey: eng.projectKey, name: eng.name })}
+                        >
                           {eng.resolvedPoints}
                         </TableCell>
                         {showCapacity && (
@@ -380,6 +412,54 @@ const EngOutputsVsGoalChart = ({ data }: EngOutputsVsGoalChartProps) => {
             </svg>
           </Paper>
         </Box>
+      )}
+
+      {/* ── Story drill-down grid ──────────────────────────────────── */}
+      {selectedEng && (
+        <Paper elevation={1} sx={{ overflow: 'hidden' }}>
+          <Box sx={{ px: 2, py: 1, bgcolor: 'grey.100', borderBottom: 1, borderColor: 'divider' }}>
+            <Typography variant="caption" fontWeight={700}>
+              Stories resolved by {selectedEng.name}
+              {multiProject && ` (${engRows.find((e) => e.projectKey === selectedEng.projectKey && e.name === selectedEng.name)?.projectName ?? selectedEng.projectKey})`}
+            </Typography>
+          </Box>
+          {selectedStories.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1.5 }}>
+              No resolved stories found.
+            </Typography>
+          ) : (
+            <TableContainer>
+              <Table size="small" sx={{ '& td, & th': { whiteSpace: 'nowrap' } }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={compactHeaderSx}>Key</TableCell>
+                    <TableCell sx={{ ...compactHeaderSx, whiteSpace: 'normal' }}>Summary</TableCell>
+                    <TableCell sx={{ ...compactHeaderSx, textAlign: 'right' }}>Points</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {selectedStories.map((issue) => (
+                    <TableRow key={issue.key} hover sx={{ '&:nth-of-type(even)': { bgcolor: 'grey.50' } }}>
+                      <TableCell sx={compactCellSx}>
+                        <Link
+                          href={`${JIRA_BASE_URL}/browse/${issue.key}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          underline="hover"
+                          sx={{ fontSize: 'inherit' }}
+                        >
+                          {issue.key}
+                        </Link>
+                      </TableCell>
+                      <TableCell sx={{ ...compactCellSx, whiteSpace: 'normal' }}>{issue.summary}</TableCell>
+                      <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{issue.points}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </Paper>
       )}
     </Box>
   );

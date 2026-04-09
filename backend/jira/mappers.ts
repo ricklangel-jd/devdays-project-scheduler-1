@@ -151,10 +151,14 @@ export const mapToTicket = (
   const sprintField = issue.fields[fieldConfig.sprint];
   const sprintIds = extractSprintIds(sprintField);
 
+  const resolutionDateValue = issue.fields['resolutiondate'];
+  const resolutionDate = typeof resolutionDateValue === 'string' ? resolutionDateValue : null;
+
   return {
     key: issue.key,
     summary: issue.fields.summary,
     status: issue.fields.status.name,
+    statusCategoryKey: issue.fields.status.statusCategory?.key,
     epicKey,
     devDays,
     blockedBy,
@@ -162,6 +166,7 @@ export const mapToTicket = (
     assigneeAvatarUrl: issue.fields.assignee?.avatarUrls?.['24x24'],
     isMissingEstimate: !hasEstimate,
     sprintIds,
+    resolutionDate,
     pinnedStartDate,
   };
 };

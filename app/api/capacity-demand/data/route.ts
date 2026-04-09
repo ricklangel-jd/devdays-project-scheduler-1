@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getJiraClient, mapToTickets, EXCLUDE_MAINFRAME } from '@/backend/jira';
+import { getJiraClient, mapToTickets, EXCLUDE_MAINFRAME, EXCLUDE_SUPPORT } from '@/backend/jira';
 import type { FieldConfig } from '@/backend/jira/mappers';
 import type { JiraTicket } from '@/shared/types';
+import { buildSprintDateMap, getLatestSprintId } from '@/shared/utils/sprints';
+import type { SprintDateRange } from '@/shared/utils/sprints';
 
 /**
  * Jira built-in field for "Story point estimate" — used as fallback when the
@@ -32,6 +34,7 @@ interface CapacityDemandRequest {
   piLabels: string[];
   piSprints?: PiSprintAssignment[];
   boardId?: number;
+  showAllWork?: boolean;
 }
 
 interface EpicDemand {
@@ -124,6 +127,42 @@ const findEpicsForPI = async (
 };
 
 /**
+ * Show-All-Work mode: find all epics that have at least one story in the
+ * given sprint IDs, regardless of whether the epic has the PI label.
+ * isStretch is set only when the epic also carries the PI label + Stretch label.
+ */
+const findAllEpicsForPIBySprints = async (
+  label: string,
+  projectKey: string,
+  piSprintIds: Set<number>,
+  client: ReturnType<typeof getJiraClient>
+): Promise<{ key: string; summary: string; isStretch: boolean }[]> => {
+  if (piSprintIds.size === 0) return [];
+
+  const sprintList = Array.from(piSprintIds).join(',');
+  const jql = `sprint in (${sprintList}) AND ${EXCLUDE_MAINFRAME} AND project = ${projectKey} AND issuetype not in (Epic) AND status not in (Canceled, Cancelled)`;
+  const storiesResponse = await client.searchAllIssues(jql, ['parent']);
+
+  const epicKeys = new Set<string>();
+  for (const issue of storiesResponse.issues) {
+    const parent = issue.fields['parent'] as { key: string } | undefined;
+    if (parent?.key) epicKeys.add(parent.key);
+  }
+
+  if (epicKeys.size === 0) return [];
+
+  const epicJql = `key in (${Array.from(epicKeys).join(',')}) AND issuetype = Epic AND status not in (Canceled, Cancelled) AND project = ${projectKey}`;
+  const epicsResponse = await client.searchAllIssues(epicJql, ['labels']);
+
+  return epicsResponse.issues.map((epic) => {
+    const epicLabels: string[] = epic.fields.labels ?? [];
+    const hasLabel = epicLabels.includes(label);
+    const isStretch = hasLabel && epicLabels.some((l: string) => l.toLowerCase() === 'stretch');
+    return { key: epic.key, summary: epic.fields.summary, isStretch };
+  });
+};
+
+/**
  * Standard algorithm: sum all child tickets per epic.
  * When boardSprintIds is provided, only count tickets in those sprints.
  * Used when piSprints is not provided — no per-PI sprint filtering.
@@ -142,15 +181,16 @@ const processWithoutSprints = async (
 
     for (const epic of epics) {
       try {
-        const jql = `("Epic Link" = ${epic.key} OR parent = ${epic.key}) AND ${EXCLUDE_MAINFRAME} ORDER BY key ASC`;
+        const jql = `("Epic Link" = ${epic.key} OR parent = ${epic.key}) AND ${EXCLUDE_MAINFRAME} AND ${EXCLUDE_SUPPORT} ORDER BY key ASC`;
         const ticketsResponse = await client.searchAllIssues(jql, [STORY_POINT_ESTIMATE_FIELD]);
         const tickets = mapToTickets(ticketsResponse.issues, epic.key, fieldConfig);
 
-        const filteredTickets = boardSprintIds
-          ? tickets.filter((t) => (t.sprintIds ?? []).some((sid) => boardSprintIds.has(sid)))
-          : tickets;
+        const filteredTickets = tickets.filter((t) => {
+          if (boardSprintIds) return (t.sprintIds ?? []).some((sid) => boardSprintIds.has(sid));
+          return true;
+        });
 
-        const totalPoints = filteredTickets.reduce((sum, t) => sum + t.devDays, 0);
+        const totalPoints = filteredTickets.reduce((sum, t) => sum + (t.isMissingEstimate ? 0 : t.devDays), 0);
 
         epicDemands.push({
           key: epic.key,
@@ -176,16 +216,17 @@ const processWithoutSprints = async (
 };
 
 /**
- * Sprint-filtered algorithm: only count non-canceled stories assigned to
- * a sprint within that PI. A story in sprints for multiple PIs counts in each.
- * When boardSprintIds is provided, additionally filter to only board sprints.
+ * Sprint-filtered algorithm: count only completed stories whose resolution date
+ * falls within the date range of a sprint belonging to that PI.
  */
 const processWithSprints = async (
   piLabels: string[],
   projectKey: string,
   piSprints: PiSprintAssignment[],
   client: ReturnType<typeof getJiraClient>,
-  boardSprintIds?: Set<number>
+  sprintDateMap: Map<number, SprintDateRange>,
+  boardSprintIds?: Set<number>,
+  showAllWork?: boolean,
 ): Promise<PIDemand[]> => {
   const fieldConfig = buildFieldConfig(client);
 
@@ -201,7 +242,10 @@ const processWithSprints = async (
   const allEpicKeys = new Set<string>();
 
   for (const label of piLabels) {
-    const epics = await findEpicsForPI(label, projectKey, client);
+    const piSprintIds = piSprintMap.get(label) ?? new Set<number>();
+    const epics = (showAllWork && piSprintIds.size > 0)
+      ? await findAllEpicsForPIBySprints(label, projectKey, piSprintIds, client)
+      : await findEpicsForPI(label, projectKey, client);
     piEpicInfo.set(label, epics);
     for (const e of epics) {
       allEpicKeys.add(e.key);
@@ -226,7 +270,8 @@ const processWithSprints = async (
   await Promise.all(ticketFetchPromises);
 
   // Phase 3: Sum points per PI per epic.
-  // A ticket counts toward a PI if it is in at least one of that PI's sprints.
+  // A story counts toward a PI only if it is completed and its latest sprint
+  // (by start date) belongs to that PI.
   const piData: PIDemand[] = piLabels.map((label) => {
     const epics = piEpicInfo.get(label) ?? [];
     const piSprintIds = piSprintMap.get(label) ?? new Set<number>();
@@ -235,18 +280,9 @@ const processWithSprints = async (
       const tickets = epicTicketsMap.get(epic.key) ?? [];
 
       const totalPoints = tickets.reduce((sum, ticket) => {
-        if (isCanceledStatus(ticket.status)) return sum;
-
-        const ticketSprints = boardSprintIds
-          ? (ticket.sprintIds ?? []).filter((sid) => boardSprintIds.has(sid))
-          : (ticket.sprintIds ?? []);
-
-        // Attribute a ticket only to the PI that contains its LAST sprint (max ID).
-        // This prevents stories that moved between sprints from being double-counted
-        // across multiple PIs.
-        const lastSprintId = ticketSprints.length > 0 ? Math.max(...ticketSprints) : null;
-        const inThisPi = lastSprintId !== null && piSprintIds.has(lastSprintId);
-        return inThisPi ? sum + ticket.devDays : sum;
+        const latestSprintId = getLatestSprintId(ticket.sprintIds ?? [], sprintDateMap);
+        const inThisPi = latestSprintId !== null && piSprintIds.has(latestSprintId);
+        return inThisPi ? sum + (ticket.isMissingEstimate ? 0 : ticket.devDays) : sum;
       }, 0);
 
       return {
@@ -266,7 +302,7 @@ const processWithSprints = async (
 export const POST = async (request: NextRequest) => {
   try {
     const body: CapacityDemandRequest = await request.json();
-    const { projectKey, piLabels, piSprints, boardId } = body;
+    const { projectKey, piLabels, piSprints, boardId, showAllWork } = body;
 
     if (!projectKey) {
       return NextResponse.json(
@@ -284,11 +320,25 @@ export const POST = async (request: NextRequest) => {
 
     const client = getJiraClient();
 
-    // If a board is selected, fetch all sprint IDs for that board to filter stories
+    // If a board is selected, fetch all sprint IDs and date ranges for that board
     let boardSprintIds: Set<number> | undefined;
+    let sprintDateMap: Map<number, SprintDateRange> = new Map();
+
     if (boardId) {
       const boardSprints = await client.getSprints(undefined, boardId);
       boardSprintIds = new Set(boardSprints.map((s) => s.id));
+      sprintDateMap = buildSprintDateMap(boardSprints);
+    }
+
+    // Ensure date ranges are available for any PI sprints not covered by the board fetch
+    if (piSprints && piSprints.some((ps) => ps.sprintIds.length > 0)) {
+      const allPiSprintIds = piSprints.flatMap((ps) => ps.sprintIds);
+      const missingIds = allPiSprintIds.filter((id) => !sprintDateMap.has(id));
+      if (missingIds.length > 0) {
+        const fetched = await client.getSprintsByIds(missingIds);
+        const fetchedMap = buildSprintDateMap(fetched);
+        fetchedMap.forEach((range, id) => sprintDateMap.set(id, range));
+      }
     }
 
     // Determine if sprint-filtered mode is active
@@ -296,7 +346,7 @@ export const POST = async (request: NextRequest) => {
 
     let piData: PIDemand[];
     if (hasSprintAssignments) {
-      piData = await processWithSprints(piLabels, projectKey, piSprints!, client, boardSprintIds);
+      piData = await processWithSprints(piLabels, projectKey, piSprints!, client, sprintDateMap, boardSprintIds, showAllWork);
     } else {
       piData = await processWithoutSprints(piLabels, projectKey, client, boardSprintIds);
     }

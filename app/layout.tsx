@@ -3,7 +3,10 @@ import { ThemeRegistry } from '@/frontend/theme';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'DevDays GaNTT Chart',
+  title: {
+    default: 'Schedule View',
+    template: '%s',
+  },
   description: 'JIRA-powered GANTT chart for project estimation',
 };
 

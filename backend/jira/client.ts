@@ -64,6 +64,20 @@ interface SprintReportIssue {
 export const EXCLUDE_MAINFRAME = '(labels NOT IN ("Mainframe") OR labels IS EMPTY)';
 
 /**
+ * JQL fragment to exclude support ticket types (incidents and service requests).
+ */
+export const EXCLUDE_SUPPORT = 'issuetype not in ("[System] Incident", "[System] Service request")';
+
+/**
+ * Comma-separated list of deliverable work-item issue types for use inside a
+ * JQL `issuetype in (...)` clause.  Includes Stories, Tasks, Bugs, and Spikes
+ * so that all engineering work is counted uniformly across every page.
+ *
+ * Usage:  `issuetype in (${WORK_ITEM_ISSUE_TYPES})`
+ */
+export const WORK_ITEM_ISSUE_TYPES = 'Story, Task, Bug, Spike';
+
+/**
  * Configuration for JIRA API client
  * All values come from environment variables
  */

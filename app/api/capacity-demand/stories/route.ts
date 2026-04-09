@@ -143,6 +143,7 @@ export const POST = async (request: NextRequest) => {
         storyPointEstimate,
         sprintName,
         status,
+        assignee: issue.fields.assignee?.displayName ?? null,
       });
     }
 

@@ -15,6 +15,7 @@ import { SprintCheckLineChart, SprintCheckCurrentSprint, SupportTicketPanel } fr
 import { useAppState } from '@/frontend/hooks';
 import { useSprintCheckData } from '@/frontend/hooks/useSprintCheckData';
 import { QUERY_PARAM_KEYS } from '@/shared/types';
+import { deserializeCapacity, type EngineerRow } from '@/shared/lib/capacity';
 
 interface ConnectionStatus {
   connected: boolean;
@@ -62,6 +63,54 @@ const SprintCheckContent = () => {
 
   // Stable key for change detection
   const sprintIdsKey = computedSprintIds.join(',');
+
+  // Engineer capacity data — driven by selectedCapacitySprintId
+  const [capacityRows, setCapacityRows] = useState<EngineerRow[]>([]);
+  const [capacitySupportPct, setCapacitySupportPct] = useState(10);
+  const [selectedCapacitySprintId, setSelectedCapacitySprintId] = useState<number | null>(null);
+
+  // Default to current sprint when data first loads (or reloads)
+  useEffect(() => {
+    if (data?.currentSprint) {
+      setSelectedCapacitySprintId(data.currentSprint.id);
+    }
+  }, [data?.currentSprint?.id]);
+
+  const handleCapacitySprintChange = useCallback((sprintId: number) => {
+    setSelectedCapacitySprintId(sprintId);
+  }, []);
+
+  // Fetch capacity data whenever selectedCapacitySprintId changes
+  useEffect(() => {
+    if (!selectedCapacitySprintId || !projectKey || !data?.sprints) {
+      setCapacityRows([]);
+      return;
+    }
+    const sprint = data.sprints.find((s) => s.id === selectedCapacitySprintId);
+    if (!sprint) { setCapacityRows([]); return; }
+    let cancelled = false;
+    const params = new URLSearchParams({
+      projectKey,
+      sprintId: sprint.id.toString(),
+      sprintName: sprint.name,
+    });
+    fetch(`/api/capacity/storage?${params}`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (cancelled) return;
+        if (json.data) {
+          const parsed = deserializeCapacity(json.data);
+          if (parsed) {
+            setCapacityRows(parsed.rows);
+            setCapacitySupportPct(parsed.supportPct);
+            return;
+          }
+        }
+        setCapacityRows([]);
+      })
+      .catch(() => { if (!cancelled) setCapacityRows([]); });
+    return () => { cancelled = true; };
+  }, [selectedCapacitySprintId, projectKey, data?.sprints]);
 
   // Engineer filter state (local, not URL)
   const [selectedEngineers, setSelectedEngineers] = useState<Set<string>>(new Set());
@@ -249,6 +298,10 @@ const SprintCheckContent = () => {
                 highlightedSprintId={highlightedSprintId}
                 onEngineerHighlight={handleEngineerHighlight}
                 onDataPointClick={handleDataPointClick}
+                capacityRows={capacityRows}
+                capacitySupportPct={capacitySupportPct}
+                selectedCapacitySprintId={selectedCapacitySprintId}
+                onCapacitySprintChange={handleCapacitySprintChange}
               />
               <SupportTicketPanel tickets={data.supportTickets ?? []} />
             </Box>

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getJiraClient, EXCLUDE_MAINFRAME } from '@/backend/jira';
+import { getJiraClient, EXCLUDE_MAINFRAME, WORK_ITEM_ISSUE_TYPES } from '@/backend/jira';
 
 /**
  * GET /api/pi-planning/engineers?project=PROJ&boardId=123
@@ -44,7 +44,7 @@ export const GET = async (request: NextRequest) => {
     const currentSprint = projectSprints[0];
 
     // Fetch all stories/tasks in the current sprint for this project
-    const jql = `sprint = ${currentSprint.id} AND project = ${projectKey} AND issuetype in (Story, Task, "Service Ticket") AND ${EXCLUDE_MAINFRAME}`;
+    const jql = `sprint = ${currentSprint.id} AND project = ${projectKey} AND issuetype in (${WORK_ITEM_ISSUE_TYPES}, "Service Ticket") AND ${EXCLUDE_MAINFRAME}`;
     const response = await client.searchAllIssues(jql, []);
 
     // Extract unique assignee display names

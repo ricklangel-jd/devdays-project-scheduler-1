@@ -158,6 +158,14 @@ const CapacityDemandChart = ({
       if (epicHasPoints.get(key)) withStories.push(info);
       else withoutStories.push(info);
     }
+    const byKey = (a: { key: string }, b: { key: string }) => {
+      const [aPfx, aNum] = a.key.split('-');
+      const [bPfx, bNum] = b.key.split('-');
+      if (aPfx !== bPfx) return aPfx.localeCompare(bPfx);
+      return parseInt(aNum, 10) - parseInt(bNum, 10);
+    };
+    withStories.sort(byKey);
+    withoutStories.sort(byKey);
     return { legendEpics: withStories, noStoryEpics: withoutStories };
   }, [data]);
 

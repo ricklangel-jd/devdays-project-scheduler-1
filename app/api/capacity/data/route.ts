@@ -3,6 +3,7 @@ import { getJiraClient, mapToSprints, mapToTicketAutoEpic } from '@/backend/jira
 
 interface CapacityRequest {
   boardId: number;
+  sprintId?: number; // if provided, fetch engineers for this specific sprint instead of the active one
 }
 
 export interface CapacityEngineer {
@@ -17,7 +18,7 @@ export interface CapacityResponse {
 export const POST = async (request: NextRequest) => {
   try {
     const body: CapacityRequest = await request.json();
-    const { boardId } = body;
+    const { boardId, sprintId } = body;
 
     if (!boardId) {
       return NextResponse.json({ error: 'Board ID is required' }, { status: 400 });
@@ -26,18 +27,32 @@ export const POST = async (request: NextRequest) => {
     const client = getJiraClient();
     const fieldConfig = client.getFieldConfig();
 
-    // Find the active sprint for this board
-    const activeSprintsRaw = await client.getSprints('active', boardId);
-    const activeSprints = mapToSprints(activeSprintsRaw);
+    let targetSprintId: number;
+    let targetSprintName: string;
 
-    if (activeSprints.length === 0) {
-      return NextResponse.json({ sprintName: '', engineers: [] });
+    if (sprintId) {
+      // Fetch the specific sprint by ID
+      const allSprintsRaw = await client.getSprints('active,closed,future', boardId);
+      const allSprints = mapToSprints(allSprintsRaw);
+      const match = allSprints.find((s) => s.id === sprintId);
+      if (!match) {
+        return NextResponse.json({ sprintName: '', engineers: [] });
+      }
+      targetSprintId = match.id;
+      targetSprintName = match.name;
+    } else {
+      // Fall back to the active sprint (original behaviour)
+      const activeSprintsRaw = await client.getSprints('active', boardId);
+      const activeSprints = mapToSprints(activeSprintsRaw);
+      if (activeSprints.length === 0) {
+        return NextResponse.json({ sprintName: '', engineers: [] });
+      }
+      targetSprintId = activeSprints[0].id;
+      targetSprintName = activeSprints[0].name;
     }
 
-    const activeSprint = activeSprints[0];
-
-    // Get all stories in the active sprint
-    const ticketsResponse = await client.getSprintTickets([activeSprint.id]);
+    // Get all stories in the target sprint
+    const ticketsResponse = await client.getSprintTickets([targetSprintId]);
 
     // Collect unique assignees, sorted alphabetically, excluding unassigned
     const seen = new Set<string>();
@@ -51,7 +66,7 @@ export const POST = async (request: NextRequest) => {
       .map((name) => ({ name }));
 
     const response: CapacityResponse = {
-      sprintName: activeSprint.name,
+      sprintName: targetSprintName,
       engineers,
     };
 

@@ -23,6 +23,7 @@ export interface JiraTicket {
   key: string;           // e.g., "PROJ-456"
   summary: string;       // Ticket title
   status: string;
+  statusCategoryKey?: string; // Jira status category key: 'new' | 'indeterminate' | 'done'
   epicKey: string;       // Parent epic key
   devDays: number;       // Custom field: Story Points / Dev Days (default: 5 if missing)
   blockedBy?: string[];  // Ticket keys that block this ticket
@@ -30,6 +31,7 @@ export interface JiraTicket {
   assigneeAvatarUrl?: string; // Profile photo URL from JIRA
   isMissingEstimate: boolean; // True if devDays was defaulted (no estimate in JIRA)
   sprintIds?: number[];  // Sprint IDs from JIRA (ticket can be in multiple sprints)
+  resolutionDate?: string | null; // ISO date string when the ticket was resolved/completed
   pinnedStartDate?: string; // ISO date string from JIRA custom field - pins ticket to exact start date
 }
 
@@ -77,6 +79,10 @@ export interface JiraIssueResponse {
     summary: string;
     status: {
       name: string;
+      statusCategory?: {
+        key: string;  // 'new' | 'indeterminate' | 'done'
+        name: string;
+      };
     };
     assignee?: {
       displayName: string;
@@ -172,6 +178,7 @@ export interface EpicStoryRow {
   storyPointEstimate: number | null; // Raw story_point_estimate field value (null if missing)
   sprintName: string | null;         // Name of the latest sprint (by start date)
   status: string;
+  assignee: string | null;
 }
 
 /**

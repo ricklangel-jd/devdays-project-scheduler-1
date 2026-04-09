@@ -2,6 +2,54 @@ import { DateTime } from 'luxon';
 import type { JiraSprint, SprintDateOverride } from '../types';
 import { TIMEZONE } from './dates';
 
+/**
+ * Minimal date range for a sprint — used in maps keyed by sprint ID.
+ */
+export interface SprintDateRange {
+  startDate: string;
+  endDate: string;
+}
+
+/**
+ * Build a Map from sprint ID → date range.
+ * Accepts any array of objects with id, startDate, endDate.
+ * Entries whose startDate or endDate is missing are omitted.
+ */
+export const buildSprintDateMap = (
+  sprints: { id: number; startDate?: string; endDate?: string }[]
+): Map<number, SprintDateRange> => {
+  const map = new Map<number, SprintDateRange>();
+  for (const sprint of sprints) {
+    if (sprint.startDate && sprint.endDate) {
+      map.set(sprint.id, { startDate: sprint.startDate, endDate: sprint.endDate });
+    }
+  }
+  return map;
+};
+
+/**
+ * Given a list of sprint IDs and a date map, return the ID of the sprint
+ * with the latest start date. Returns null if no sprint has date info.
+ * Use this to determine which PI or sprint a story "belongs to".
+ */
+export const getLatestSprintId = (
+  sprintIds: number[],
+  sprintDateMap: Map<number, SprintDateRange>
+): number | null => {
+  let latestId: number | null = null;
+  let latestStartMs = -Infinity;
+  for (const sprintId of sprintIds) {
+    const sprint = sprintDateMap.get(sprintId);
+    if (!sprint) continue;
+    const startMs = new Date(sprint.startDate).getTime();
+    if (startMs > latestStartMs) {
+      latestStartMs = startMs;
+      latestId = sprintId;
+    }
+  }
+  return latestId;
+};
+
 /** Hour threshold (5PM) after which sprint start date should be adjusted to next day */
 const START_DATE_HOUR_THRESHOLD = 17;
 /** Hour threshold (8AM) before which sprint end date should be adjusted to previous workday */

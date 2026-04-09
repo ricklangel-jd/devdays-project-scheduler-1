@@ -27,6 +27,13 @@ import { useSprintPlanningData } from '@/frontend/hooks/useSprintPlanningData';
 import type { ParentGroup, StoryRow, ReadinessLabel } from '@/frontend/hooks/useSprintPlanningData';
 import { QUERY_PARAM_KEYS } from '@/shared/types';
 import { EPIC_COLORS } from '@/shared/constants';
+import {
+  deserializeCapacity,
+  computeEngineerCapacity,
+  computeTotalCapacity,
+  type EngineerRow,
+  type CapacityPayload,
+} from '@/shared/lib/capacity';
 
 const JIRA_BASE_URL = process.env.NEXT_PUBLIC_JIRA_BASE_URL || '';
 
@@ -37,53 +44,17 @@ interface ConnectionStatus {
 
 // ── Capacity data (loaded from JIRA via capacity storage API) ─────────
 
-interface CapacityEngineerRow {
-  name: string;
-  isTechLead: boolean;
-  daysOut: number;
-  capacity: number;
-}
-
-interface SavedCapacityData {
-  engineers: CapacityEngineerRow[];
-  supportPct: number;
-  totalCapacity: number;
-}
-
-const parseCapacityPayload = (raw: string): SavedCapacityData | null => {
-  try {
-    const semicolon = raw.indexOf(';');
-    const supportPct = semicolon !== -1 ? parseInt(raw.slice(0, semicolon), 10) : 10;
-    const engineerPart = semicolon !== -1 ? raw.slice(semicolon + 1) : raw;
-    const engineers: CapacityEngineerRow[] = engineerPart.split('|').map((entry) => {
-      const [namePart, tlPart, doPart, pctPart] = entry.split(':');
-      const name = decodeURIComponent(namePart);
-      const isTechLead = tlPart === '1';
-      const daysOut = parseFloat(doPart);
-      const capacityPct = pctPart !== undefined ? parseInt(pctPart, 10) : 100;
-      const capacity = isTechLead ? 0 : Math.round(Math.max(0, 10 - daysOut) * (capacityPct / 100) * 10) / 10;
-      return { name, isTechLead, daysOut, capacity };
-    });
-    if (engineers.some((e) => !e.name || isNaN(e.daysOut))) return null;
-    const rawTotal = engineers.reduce((sum, e) => sum + e.capacity, 0);
-    const totalCapacity = Math.round(rawTotal * (1 - supportPct / 100) * 10) / 10;
-    return { engineers, supportPct, totalCapacity };
-  } catch {
-    return null;
-  }
-};
-
 const loadCapacityFromJira = async (
   projectKey: string,
   sprintId: number,
   sprintName: string
-): Promise<SavedCapacityData | null> => {
+): Promise<CapacityPayload | null> => {
   try {
     const params = new URLSearchParams({ projectKey, sprintId: sprintId.toString(), sprintName });
     const res = await fetch(`/api/capacity/storage?${params}`);
     if (!res.ok) return null;
     const json = await res.json();
-    return json.data ? parseCapacityPayload(json.data) : null;
+    return json.data ? deserializeCapacity(json.data) : null;
   } catch {
     return null;
   }
@@ -335,10 +306,12 @@ const CapacityVsPointsChart = ({ totalCapacity, parents, highlightedKey, onEpicC
 // ── Read-only capacity grid ───────────────────────────────────────────
 
 interface CapacityGridProps {
-  capacityData: SavedCapacityData;
+  rows: EngineerRow[];
+  supportPct: number;
 }
 
-const CapacityGrid = ({ capacityData }: CapacityGridProps) => {
+const CapacityGrid = ({ rows, supportPct }: CapacityGridProps) => {
+  const totalCapacity = computeTotalCapacity(rows, supportPct);
   const colSx = { fontSize: '0.78rem', py: 0.5, px: 1 };
   const headerSx = { ...colSx, fontWeight: 700, bgcolor: 'grey.100', whiteSpace: 'nowrap' as const };
 
@@ -346,36 +319,41 @@ const CapacityGrid = ({ capacityData }: CapacityGridProps) => {
     <Box sx={{ flexShrink: 0 }}>
       <Typography variant="subtitle2" sx={{ mb: 0.75, fontWeight: 600, color: 'text.secondary' }}>
         Engineer Capacity
-        {capacityData.supportPct > 0 && (
-          <Typography component="span" variant="caption" sx={{ ml: 1 }}>
-            ({capacityData.supportPct}% support)
+        {supportPct > 0 && (
+          <Typography component="span" variant="caption" color="primary.main" sx={{ ml: 1, fontWeight: 600 }}>
+            {totalCapacity} pts ({supportPct}% support)
           </Typography>
         )}
       </Typography>
-      <TableContainer component={Paper} elevation={1} sx={{ maxWidth: 320 }}>
+      <TableContainer component={Paper} elevation={1}>
         <Table size="small" stickyHeader>
           <TableHead>
             <TableRow>
               <TableCell sx={headerSx}>Engineer</TableCell>
               <TableCell sx={{ ...headerSx, textAlign: 'center' }}>TL</TableCell>
               <TableCell sx={{ ...headerSx, textAlign: 'right' }}>Days Out</TableCell>
+              <TableCell sx={{ ...headerSx, textAlign: 'right' }}>% Cap</TableCell>
               <TableCell sx={{ ...headerSx, textAlign: 'right' }}>Capacity</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {capacityData.engineers.map((eng) => (
-              <TableRow key={eng.name} sx={{ '&:nth-of-type(even)': { bgcolor: 'grey.50' } }}>
-                <TableCell sx={colSx}>{eng.name}</TableCell>
-                <TableCell sx={{ ...colSx, textAlign: 'center' }}>{eng.isTechLead ? '✓' : ''}</TableCell>
-                <TableCell sx={{ ...colSx, textAlign: 'right' }}>{eng.daysOut > 0 ? eng.daysOut : '—'}</TableCell>
-                <TableCell sx={{ ...colSx, textAlign: 'right', fontWeight: 600, color: eng.capacity === 0 ? 'text.disabled' : 'text.primary' }}>
-                  {eng.capacity}
-                </TableCell>
-              </TableRow>
-            ))}
+            {rows.map((row) => {
+              const capacity = computeEngineerCapacity(row);
+              return (
+                <TableRow key={row.name} sx={{ '&:nth-of-type(even)': { bgcolor: 'grey.50' }, opacity: row.ignore ? 0.45 : 1 }}>
+                  <TableCell sx={colSx}>{row.name}</TableCell>
+                  <TableCell sx={{ ...colSx, textAlign: 'center', color: row.isTechLead ? 'primary.main' : 'transparent' }}>✓</TableCell>
+                  <TableCell sx={{ ...colSx, textAlign: 'right' }}>{row.daysOut > 0 ? row.daysOut : '—'}</TableCell>
+                  <TableCell sx={{ ...colSx, textAlign: 'right' }}>{row.capacityPct}%</TableCell>
+                  <TableCell sx={{ ...colSx, textAlign: 'right', fontWeight: 600, color: capacity === 0 ? 'text.disabled' : 'text.primary' }}>
+                    {capacity}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
             <TableRow sx={{ borderTop: 2, borderColor: 'grey.300' }}>
-              <TableCell sx={{ ...colSx, fontWeight: 700 }} colSpan={3}>Total</TableCell>
-              <TableCell sx={{ ...colSx, textAlign: 'right', fontWeight: 700 }}>{capacityData.totalCapacity}</TableCell>
+              <TableCell sx={{ ...colSx, fontWeight: 700 }} colSpan={4}>Total</TableCell>
+              <TableCell sx={{ ...colSx, textAlign: 'right', fontWeight: 700 }}>{totalCapacity}</TableCell>
             </TableRow>
           </TableBody>
         </Table>
@@ -825,7 +803,7 @@ const SprintPlanningContent = () => {
 
   const { projectKey, sidebarCollapsed, setSidebarCollapsed } = useAppState();
 
-  const { data, isLoading, error, generate, clear } = useSprintPlanningData();
+  const { data, dataSprintId, isLoading, error, generate, clear } = useSprintPlanningData();
 
   const boardParam = searchParams.get(QUERY_PARAM_KEYS.BOARD);
   const boardId = boardParam ? parseInt(boardParam, 10) || undefined : undefined;
@@ -833,8 +811,8 @@ const SprintPlanningContent = () => {
   const sprintParam = searchParams.get(QUERY_PARAM_KEYS.SP_SPRINT);
   const selectedSprintId = sprintParam ? parseInt(sprintParam, 10) || null : null;
 
-  // Capacity data from localStorage (saved by Capacity page)
-  const [savedCapacity, setSavedCapacity] = useState<SavedCapacityData | null>(null);
+  // Capacity data for the selected sprint (saved by Capacity page)
+  const [savedCapacity, setSavedCapacity] = useState<CapacityPayload | null>(null);
 
   // Epic breakdown highlight
   const [highlightedKey, setHighlightedKey] = useState<string | null>(null);
@@ -884,18 +862,20 @@ const SprintPlanningContent = () => {
     prevValuesRef.current = { sprintId: selectedSprintId, boardId };
     prevCapacityKeyRef.current = '';
     setSavedCapacity(null);
+    clear();
     generate(selectedSprintId, boardId);
   }, [selectedSprintId, boardId, generate, clear]);
 
-  // Load capacity from JIRA once sprint data (and sprint name) is available
+  // Load capacity once sprint data is available AND matches the selected sprint
   const prevCapacityKeyRef = useRef<string>('');
   useEffect(() => {
     if (!data || !selectedSprintId || !projectKey) return;
+    if (dataSprintId !== selectedSprintId) return; // data is from a different sprint — wait
     const key = `${projectKey}:${selectedSprintId}`;
     if (key === prevCapacityKeyRef.current) return;
     prevCapacityKeyRef.current = key;
     loadCapacityFromJira(projectKey, selectedSprintId, data.sprintName).then(setSavedCapacity);
-  }, [data, selectedSprintId, projectKey]);
+  }, [data, dataSprintId, selectedSprintId, projectKey]);
 
   useEffect(() => {
     const checkConnection = async () => {
@@ -1005,16 +985,17 @@ const SprintPlanningContent = () => {
                   highlightedKey={highlightedKey}
                   onRowClick={handleEpicHighlight}
                 />
-                {savedCapacity && <CapacityGrid capacityData={savedCapacity} />}
+                {savedCapacity && <CapacityGrid rows={savedCapacity.rows} supportPct={savedCapacity.supportPct} />}
                 {savedCapacity && (() => {
                   const supportFactor = 1 - savedCapacity.supportPct / 100;
-                  const engSegs = savedCapacity.engineers
-                    .filter((e) => !e.isTechLead && e.capacity > 0)
-                    .map((e, i) => ({
-                      label: e.name,
-                      value: Math.round(e.capacity * supportFactor * 10) / 10,
+                  const engSegs = savedCapacity.rows
+                    .filter((r) => !r.isTechLead && !r.ignore && computeEngineerCapacity(r) > 0)
+                    .map((r, i) => ({
+                      label: r.name,
+                      value: Math.round(computeEngineerCapacity(r) * supportFactor * 10) / 10,
                       color: ENGINEER_COLORS[i % ENGINEER_COLORS.length],
                     }));
+                  const totalCapacity = computeTotalCapacity(savedCapacity.rows, savedCapacity.supportPct);
                   const epicSegs = data.parents.map((p, i) => ({
                     label: p.parentSummary,
                     value: p.points,
@@ -1023,7 +1004,7 @@ const SprintPlanningContent = () => {
                   return (
                     <GroupedStackedChart
                       leftSegments={engSegs}
-                      leftTotal={savedCapacity.totalCapacity}
+                      leftTotal={totalCapacity}
                       leftLabel="Capacity"
                       rightSegments={epicSegs}
                       rightTotal={data.totalPoints}

@@ -20,7 +20,7 @@ import type { EpicStoryRow } from '@/shared/types';
 // JIRA base URL from environment
 const JIRA_BASE_URL = process.env.NEXT_PUBLIC_JIRA_BASE_URL || '';
 
-type SortField = 'key' | 'summary' | 'sprintName' | 'status' | 'storyPoints' | 'storyPointEstimate';
+type SortField = 'key' | 'summary' | 'sprintName' | 'status' | 'storyPoints' | 'storyPointEstimate' | 'assignee';
 type SortDirection = 'asc' | 'desc';
 
 interface Column {
@@ -36,6 +36,7 @@ const COLUMNS: Column[] = [
   { field: 'status', label: 'Status', width: 110 },
   { field: 'storyPoints', label: 'Story Points', width: 100 },
   { field: 'storyPointEstimate', label: 'SP Estimate', width: 100 },
+  { field: 'assignee', label: 'Assignee', width: 150 },
 ];
 
 const compareValues = (
@@ -65,6 +66,8 @@ const compareValues = (
       return multiplier * (a.sprintName ?? '').localeCompare(b.sprintName ?? '');
     case 'status':
       return multiplier * a.status.localeCompare(b.status);
+    case 'assignee':
+      return multiplier * (a.assignee ?? '').localeCompare(b.assignee ?? '');
     default:
       return 0;
   }
@@ -403,6 +406,9 @@ const EpicStoriesGrid = ({ stories, isLoading, epicKey, epicStatus }: EpicStorie
                     </TableCell>
                     <TableCell sx={{ fontSize: 12 }}>
                       {story.storyPointEstimate !== null ? story.storyPointEstimate : '—'}
+                    </TableCell>
+                    <TableCell sx={{ fontSize: 12 }}>
+                      {story.assignee ?? '—'}
                     </TableCell>
                   </TableRow>
                 );

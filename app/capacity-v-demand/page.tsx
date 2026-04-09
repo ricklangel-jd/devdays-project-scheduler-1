@@ -41,6 +41,7 @@ const CapacityDemandContent = () => {
   const { data, isLoading, error, generate, clear } = useCapacityDemandData();
 
   const [epicSelection, setEpicSelection] = useState<EpicSelection | null>(null);
+  const [showAllWork, setShowAllWork] = useState(false);
 
   // Parse PI labels from URL
   const piLabelsParam = searchParams.get(QUERY_PARAM_KEYS.PI_LABELS);
@@ -248,6 +249,7 @@ const CapacityDemandContent = () => {
     piLabels: string;
     piSprintsKey: string;
     boardId: number | undefined;
+    showAllWork: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -270,27 +272,28 @@ const CapacityDemandContent = () => {
       return;
     }
 
-    const currentValues = { projectKey, piLabels: piLabels.join(','), piSprintsKey, boardId };
+    const currentValues = { projectKey, piLabels: piLabels.join(','), piSprintsKey, boardId, showAllWork };
     const prev = prevValuesRef.current;
     const hasChanged =
       !prev ||
       prev.projectKey !== currentValues.projectKey ||
       prev.piLabels !== currentValues.piLabels ||
       prev.piSprintsKey !== currentValues.piSprintsKey ||
-      prev.boardId !== currentValues.boardId;
+      prev.boardId !== currentValues.boardId ||
+      prev.showAllWork !== currentValues.showAllWork;
 
     if (hasChanged) {
       prevValuesRef.current = currentValues;
       setEpicSelection(null);
-      generate(projectKey, piLabels, piSprints, boardId);
+      generate(projectKey, piLabels, piSprints, boardId, showAllWork);
     }
-  }, [projectKey, piLabels, piSprints, piSprintsKey, boardId, generate, clear, data]);
+  }, [projectKey, piLabels, piSprints, piSprintsKey, boardId, showAllWork, generate, clear, data]);
 
   const handleRefresh = useCallback(() => {
     if (!projectKey || piLabels.length === 0 || isLoading) return;
     clear();
-    generate(projectKey, piLabels, piSprints, boardId);
-  }, [projectKey, piLabels, piSprints, boardId, isLoading, clear, generate]);
+    generate(projectKey, piLabels, piSprints, boardId, showAllWork);
+  }, [projectKey, piLabels, piSprints, boardId, showAllWork, isLoading, clear, generate]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
@@ -302,7 +305,9 @@ const CapacityDemandContent = () => {
             piLabels={piLabels}
             isGenerating={isLoading}
             showCapacityControls={false}
+            showAllWork={showAllWork}
             onPILabelsChange={handlePILabelsChange}
+            onShowAllWorkChange={setShowAllWork}
           />
         </Sidebar>
         <MainContent>

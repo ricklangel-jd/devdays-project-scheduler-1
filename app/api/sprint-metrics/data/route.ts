@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getJiraClient, EXCLUDE_MAINFRAME, mapToTicketAutoEpic, mapToSprints } from '@/backend/jira';
+import { getJiraClient, EXCLUDE_MAINFRAME, WORK_ITEM_ISSUE_TYPES, mapToTicketAutoEpic, mapToSprints } from '@/backend/jira';
 import type { JiraClient } from '@/backend/jira/client';
 import type { FieldConfig } from '@/backend/jira/mappers';
 import type { JiraIssueResponse } from '@/shared/types';
 import { deserializeCapacity, computeTotalCapacity, countNonTechLeadEngineers, computeEngineerCapacity } from '@/shared/lib/capacity';
 import type { EngineerRow } from '@/shared/lib/capacity';
+import { sprintLabelFromName } from '@/shared/lib/sprint';
 
 /**
  * Jira built-in field for "Story point estimate" -- used as fallback
@@ -38,6 +39,7 @@ interface SprintMetricsIssue {
   sprintName: string;
   points: number;
   categories: string[];  // 'day1' | 'resolved' | 'lastDay' | 'scopeChange' | 'carryover' | 'serviceDesk'
+  assignee: string | null;
 }
 
 interface SprintMetricsRow {
@@ -59,6 +61,7 @@ interface SprintMetricsRow {
   jiraCapacity: number | null;
   jiraEngineerCount: number | null;
   engineerOutputs: EngOutputRow[] | null;
+  engineerRows: Array<{ name: string; daysOut: number; capacityPct: number }> | null;
 }
 
 const CAPACITY_EPIC_TITLE = 'PI Capacity Planning';
@@ -345,7 +348,7 @@ export const POST = async (request: NextRequest) => {
       return {
         totalCapacity: computeTotalCapacity(payload.rows, payload.supportPct),
         engineerCount: countNonTechLeadEngineers(payload.rows),
-        engineerRows: payload.rows.filter((r) => !r.isTechLead),
+        engineerRows: payload.rows.filter((r) => !r.isTechLead && !r.ignore),
         supportPct: payload.supportPct,
       };
       } catch (err) {
@@ -445,7 +448,7 @@ export const POST = async (request: NextRequest) => {
       // 6. Process each sprint sequentially (API calls within a sprint still parallel)
       for (const { sprint, offset, nextSprintId } of sprintsToProcess) {
         // Fetch issues via JQL (uses app's standard point calculation)
-        const jql = `sprint = ${sprint.id} AND project = "${projectKey}" AND issuetype in (Story, Task) AND ${EXCLUDE_MAINFRAME}`;
+        const jql = `sprint = ${sprint.id} AND project = "${projectKey}" AND issuetype in (${WORK_ITEM_ISSUE_TYPES}) AND ${EXCLUDE_MAINFRAME}`;
 
         // carryover is computed after sprint report + punted analysis using issuesNotCompleted
 
@@ -457,10 +460,26 @@ export const POST = async (request: NextRequest) => {
         const sprintReport = await client.getSprintReport(boardId, sprint.id);
 
         const [issuesResponse, serviceDeskResponse, sprintCapacity] = await Promise.all([
-          client.searchAllIssues(jql),
+          client.searchAllIssues(jql, ['timespent']),
           serviceDeskPromise,
           getSprintCapacity(projectKey, sprint.id, sprint.name),
         ]);
+
+        // When no capacity story has been saved for this sprint, fall back to the
+        // unique assignees on the sprint's issues so the tooltip still shows names.
+        const fallbackEngineerRows: Array<{ name: string; daysOut: number; capacityPct: number }> | null =
+          sprintCapacity === null
+            ? (() => {
+                const names = new Set<string>();
+                for (const issue of issuesResponse.issues) {
+                  const displayName = (issue.fields.assignee as { displayName?: string } | null)?.displayName;
+                  if (displayName) names.add(displayName);
+                }
+                if (names.size === 0) return null;
+                return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+                  .map((name) => ({ name, daysOut: 0, capacityPct: 100 }));
+              })()
+            : null;
 
         const rawAddedKeys = new Set(
           Object.keys(sprintReport.contents.issueKeysAddedDuringSprint ?? {})
@@ -601,7 +620,7 @@ export const POST = async (request: NextRequest) => {
             }
           }
 
-          issues.push({ key: ticket.key, summary: ticket.summary, sprintName: sprint.name, points, categories });
+          issues.push({ key: ticket.key, summary: ticket.summary, sprintName: sprint.name, points, categories, assignee: ticket.assignee ?? null });
         }
 
         // ── Punted day-1 issues (present at sprint start, removed during sprint) ──
@@ -633,7 +652,7 @@ export const POST = async (request: NextRequest) => {
             scopeChangeOutPoints += points;
             puntedCategories.push('scopeChangeOut');
           }
-          issues.push({ key: ticket.key, summary: ticket.summary, sprintName: sprint.name, points, categories: puntedCategories });
+          issues.push({ key: ticket.key, summary: ticket.summary, sprintName: sprint.name, points, categories: puntedCategories, assignee: ticket.assignee ?? null });
         }
 
         // Carryover = all stories not completed at sprint end:
@@ -681,7 +700,7 @@ export const POST = async (request: NextRequest) => {
               carryoverCategories.push('lastDay');
             }
 
-            issues.push({ key, summary: ticket.summary, sprintName: sprint.name, points: pts, categories: carryoverCategories });
+            issues.push({ key, summary: ticket.summary, sprintName: sprint.name, points: pts, categories: carryoverCategories, assignee: ticket.assignee ?? null });
           }
         }
 
@@ -702,15 +721,37 @@ export const POST = async (request: NextRequest) => {
               sprintName: sprint.name,
               points: hours,
               categories: ['serviceDesk'],
+              assignee: (issue.fields.assignee as { displayName?: string } | null)?.displayName ?? null,
             });
           }
         }
+        // Also include time logged on "Splunk On Call" stories resolved in this sprint.
+        // The summary check is case-insensitive; only issues whose last sprint is this
+        // one are counted (same resolved-in-this-sprint rule as regular points).
+        for (const issue of issuesResponse.issues) {
+          const summary = (issue.fields.summary as string) ?? '';
+          if (!summary.toLowerCase().includes('splunk on call')) continue;
+          const status = (issue.fields.status as { name: string })?.name ?? '';
+          if (isCanceledStatus(status)) continue;
+          if (!doneStatusSet.has(status.toLowerCase())) continue;
+          const { ticket } = mapToTicketAutoEpic(issue, fieldConfig);
+          if (!isLastSprint(ticket.sprintIds, sprint.id)) continue;
+          const timespent = issue.fields['timespent'];
+          if (typeof timespent === 'number' && timespent > 0) {
+            serviceDeskSecondsResolved += timespent;
+          }
+        }
+
         const serviceDeskHoursResolved = Math.round((serviceDeskSecondsResolved / 3600) * 10) / 10;
 
         const engineerOutputs: EngOutputRow[] | null =
           engineerOutputMap.size > 0
             ? [...engineerOutputMap.values()].sort((a, b) => a.name.localeCompare(b.name))
             : null;
+
+        // Scope Out = Day 1 Pts + Scope In - Carryover (All)
+        // Represents the net work that left the sprint without carrying over.
+        const derivedScopeOut = day1Points + scopeChangeInPoints - carryoverAllPoints;
 
         result.set(offset, {
           projectKey,
@@ -723,7 +764,7 @@ export const POST = async (request: NextRequest) => {
           resolvedPoints,
           lastDayPoints,
           scopeChangeInPoints,
-          scopeChangeOutPoints,
+          scopeChangeOutPoints: derivedScopeOut,
           carryoverPoints,
           carryoverAllPoints,
           serviceDeskHoursResolved,
@@ -731,6 +772,7 @@ export const POST = async (request: NextRequest) => {
           jiraCapacity: sprintCapacity?.totalCapacity ?? null,
           jiraEngineerCount: sprintCapacity?.engineerCount ?? null,
           engineerOutputs,
+          engineerRows: sprintCapacity?.engineerRows.map((r) => ({ name: r.name, daysOut: r.daysOut, capacityPct: r.capacityPct })) ?? fallbackEngineerRows,
         });
       }
 
@@ -774,16 +816,19 @@ export const POST = async (request: NextRequest) => {
             jiraCapacity: null,
             jiraEngineerCount: null,
             engineerOutputs: null,
+            engineerRows: null,
           });
         }
       }
 
       if (rows.length === 0) continue;
 
-      const label =
+      const firstSprintName = rows[0]?.sprintName ?? '';
+      const label = firstSprintName ? sprintLabelFromName(firstSprintName) : (
         offset === 0
           ? 'Current Sprint'
-          : `${Math.abs(offset)} Sprint${Math.abs(offset) > 1 ? 's' : ''} Back`;
+          : `${Math.abs(offset)} Sprint${Math.abs(offset) > 1 ? 's' : ''} Back`
+      );
 
       grids.push({ offset, label, rows });
     }

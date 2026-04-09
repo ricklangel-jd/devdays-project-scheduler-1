@@ -40,6 +40,7 @@ interface CachedData {
   piLabels: string[];
   piSprintsKey: string;
   boardId?: number;
+  showAllWork: boolean;
   data: CapacityDemandData;
 }
 
@@ -47,7 +48,7 @@ interface UseCapacityDemandDataResult {
   data: CapacityDemandData | null;
   isLoading: boolean;
   error: string | null;
-  generate: (projectKey: string, piLabels: string[], piSprints?: PiSprintAssignment[], boardId?: number) => Promise<void>;
+  generate: (projectKey: string, piLabels: string[], piSprints?: PiSprintAssignment[], boardId?: number, showAllWork?: boolean) => Promise<void>;
   clear: () => void;
 }
 
@@ -57,14 +58,17 @@ export const useCapacityDemandData = (): UseCapacityDemandDataResult => {
   const [error, setError] = useState<string | null>(null);
 
   const cachedDataRef = useRef<CachedData | null>(null);
+  const generationRef = useRef(0);
 
   const generate = useCallback(async (
     projectKey: string,
     piLabels: string[],
     piSprints?: PiSprintAssignment[],
-    boardId?: number
+    boardId?: number,
+    showAllWork?: boolean,
   ) => {
     const piSprintsKey = serializePiSprints(piSprints ?? []);
+    const allWork = showAllWork ?? false;
 
     // Check cache - skip fetch if inputs haven't changed
     const cached = cachedDataRef.current;
@@ -73,11 +77,15 @@ export const useCapacityDemandData = (): UseCapacityDemandDataResult => {
       cached.projectKey === projectKey &&
       cached.piLabels.join(',') === piLabels.join(',') &&
       cached.piSprintsKey === piSprintsKey &&
-      cached.boardId === boardId
+      cached.boardId === boardId &&
+      cached.showAllWork === allWork
     ) {
       setData(cached.data);
       return;
     }
+
+    // Increment generation so any in-flight fetch from a prior call will be ignored
+    const generation = ++generationRef.current;
 
     setIsLoading(true);
     setError(null);
@@ -91,10 +99,14 @@ export const useCapacityDemandData = (): UseCapacityDemandDataResult => {
           piLabels,
           piSprints: piSprints ?? [],
           boardId,
+          showAllWork: allWork,
         }),
       });
 
       const responseData = await response.json();
+
+      // Discard result if a newer generate() call has been made since this one started
+      if (generation !== generationRef.current) return;
 
       if (!response.ok) {
         throw new Error(responseData.message || responseData.error || 'Failed to fetch data');
@@ -102,14 +114,15 @@ export const useCapacityDemandData = (): UseCapacityDemandDataResult => {
 
       const result: CapacityDemandData = { piData: responseData.piData };
 
-      cachedDataRef.current = { projectKey, piLabels, piSprintsKey, boardId, data: result };
+      cachedDataRef.current = { projectKey, piLabels, piSprintsKey, boardId, showAllWork: allWork, data: result };
       setData(result);
     } catch (err) {
+      if (generation !== generationRef.current) return;
       const message = err instanceof Error ? err.message : 'Unknown error';
       setError(message);
       setData(null);
     } finally {
-      setIsLoading(false);
+      if (generation === generationRef.current) setIsLoading(false);
     }
   }, []);
 

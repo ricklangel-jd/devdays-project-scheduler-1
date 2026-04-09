@@ -19,15 +19,16 @@ import Checkbox from '@mui/material/Checkbox';
 import TextField from '@mui/material/TextField';
 import InputAdornment from '@mui/material/InputAdornment';
 import Button from '@mui/material/Button';
+import MenuItem from '@mui/material/MenuItem';
 import Autocomplete from '@mui/material/Autocomplete';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
 import SaveIcon from '@mui/icons-material/Save';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
-import { Header, Sidebar, MainContent } from '@/frontend/components';
-import SprintPlanningSidebarContent from '@/frontend/components/sidebar/SprintPlanningSidebarContent';
+import { Header, MainContent } from '@/frontend/components';
 import { useAppState } from '@/frontend/hooks';
-import { useCapacityData } from '@/frontend/hooks/useCapacityData';
 import { QUERY_PARAM_KEYS } from '@/shared/types';
 import type { JiraSprint } from '@/shared/types';
 import {
@@ -74,13 +75,14 @@ interface EngineerGridProps {
   rows: EngineerRow[];
   supportPct: number;
   onToggleTechLead: (name: string) => void;
+  onToggleIgnore: (name: string) => void;
   onDaysOutChange: (name: string, value: number) => void;
   onCapacityPctChange: (name: string, value: number) => void;
   onNotesChange: (name: string, value: string) => void;
   onSupportPctChange: (value: number) => void;
 }
 
-const EngineerGrid = ({ sprintName, rows, supportPct, onToggleTechLead, onDaysOutChange, onCapacityPctChange, onNotesChange, onSupportPctChange }: EngineerGridProps) => {
+const EngineerGrid = ({ sprintName, rows, supportPct, onToggleTechLead, onToggleIgnore, onDaysOutChange, onCapacityPctChange, onNotesChange, onSupportPctChange }: EngineerGridProps) => {
   const totalCapacity = useMemo(
     () => computeTotalCapacity(rows, supportPct),
     [rows, supportPct]
@@ -98,23 +100,24 @@ const EngineerGrid = ({ sprintName, rows, supportPct, onToggleTechLead, onDaysOu
         </Typography>
       </Typography>
 
-      <TableContainer component={Paper} elevation={1} sx={{ maxWidth: 1260 }}>
+      <TableContainer component={Paper} elevation={1} sx={{ width: '100%' }}>
         <Table size="small" stickyHeader>
           <TableHead>
             <TableRow>
               <TableCell sx={headerSx}>Engineer</TableCell>
               <TableCell sx={{ ...headerSx, textAlign: 'center' }}>Tech Lead</TableCell>
+              <TableCell sx={{ ...headerSx, textAlign: 'center' }}>Ignore</TableCell>
               <TableCell sx={{ ...headerSx, textAlign: 'right' }}>Days Out</TableCell>
               <TableCell sx={{ ...headerSx, textAlign: 'right' }}>% Capacity</TableCell>
               <TableCell sx={{ ...headerSx, textAlign: 'right' }}>Capacity</TableCell>
-              <TableCell sx={headerSx}>Notes</TableCell>
+              <TableCell sx={{ ...headerSx, width: '100%' }}>Notes</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {rows.map((row) => {
               const capacity = computeEngineerCapacity(row);
               return (
-                <TableRow key={row.name} sx={{ '&:nth-of-type(even)': { bgcolor: 'grey.50' } }}>
+                <TableRow key={row.name} sx={{ '&:nth-of-type(even)': { bgcolor: 'grey.50' }, opacity: row.ignore ? 0.5 : 1 }}>
                   <TableCell sx={colSx}>{row.name}</TableCell>
 
                   <TableCell sx={{ ...colSx, textAlign: 'center', py: 0 }}>
@@ -125,12 +128,20 @@ const EngineerGrid = ({ sprintName, rows, supportPct, onToggleTechLead, onDaysOu
                     />
                   </TableCell>
 
+                  <TableCell sx={{ ...colSx, textAlign: 'center', py: 0 }}>
+                    <Checkbox
+                      size="small"
+                      checked={row.ignore ?? false}
+                      onChange={() => onToggleIgnore(row.name)}
+                    />
+                  </TableCell>
+
                   <TableCell sx={{ ...colSx, textAlign: 'right', py: 0.25 }}>
                     <TextField
                       type="number"
                       size="small"
                       value={row.daysOut}
-                      disabled={row.isTechLead}
+                      disabled={row.isTechLead || row.ignore}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value);
                         if (!isNaN(val) && val >= 0) {
@@ -147,7 +158,7 @@ const EngineerGrid = ({ sprintName, rows, supportPct, onToggleTechLead, onDaysOu
                       type="number"
                       size="small"
                       value={row.capacityPct}
-                      disabled={row.isTechLead}
+                      disabled={row.isTechLead || row.ignore}
                       onChange={(e) => {
                         const val = parseInt(e.target.value, 10);
                         if (!isNaN(val) && val >= 0 && val <= 100) {
@@ -171,13 +182,13 @@ const EngineerGrid = ({ sprintName, rows, supportPct, onToggleTechLead, onDaysOu
                     {capacity}
                   </TableCell>
 
-                  <TableCell sx={{ ...colSx, py: 0.25 }}>
+                  <TableCell sx={{ ...colSx, py: 0.25, width: '100%' }}>
                     <TextField
                       size="small"
                       value={row.notes ?? ''}
                       onChange={(e) => onNotesChange(row.name, e.target.value)}
                       inputProps={{ style: { fontSize: '0.82rem' } }}
-                      sx={{ width: 800 }}
+                      sx={{ width: '100%' }}
                     />
                   </TableCell>
                 </TableRow>
@@ -226,8 +237,11 @@ const CapacityContent = () => {
   });
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ connected: false });
-  const { projectKey, sidebarCollapsed, setSidebarCollapsed } = useAppState();
-  const { data, isLoading, error, generate, clear } = useCapacityData();
+  const { projectKey } = useAppState();
+
+  // Loading state for the engineer capacity section
+  const [isSprintLoading, setIsSprintLoading] = useState(false);
+  const [sprintLoadError, setSprintLoadError] = useState<string | null>(null);
 
   const boardParam = searchParams.get(QUERY_PARAM_KEYS.BOARD);
   const boardId = boardParam ? parseInt(boardParam, 10) || undefined : undefined;
@@ -246,8 +260,10 @@ const CapacityContent = () => {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Sprint name for display and JIRA story title
-  const [selectedSprintName, setSelectedSprintName] = useState<string>('');
+  // Reload state
+  const [isReloading, setIsReloading] = useState(false);
+  const [reloadError, setReloadError] = useState<string | null>(null);
+  const [reloadInfo, setReloadInfo] = useState<string | null>(null);
 
   // Guard against re-initializing for same board+sprint
   const initKeyRef = useRef<string>('');
@@ -255,6 +271,13 @@ const CapacityContent = () => {
   // ── PI sprint selection state ─────────────────────────────────────
 
   const [allSprints, setAllSprints] = useState<JiraSprint[]>([]);
+
+  // Derive sprint name directly — no separate state means no async sync issues
+  const selectedSprintName = useMemo(
+    () => allSprints.find((s) => s.id === selectedSprintId)?.name ?? '',
+    [allSprints, selectedSprintId]
+  );
+
   const [sprintsLoading, setSprintsLoading] = useState(false);
   const [selectedSprintIds, setSelectedSprintIds] = useState<number[]>([]);
   const [isPiSaving, setIsPiSaving] = useState(false);
@@ -311,52 +334,76 @@ const CapacityContent = () => {
     load();
   }, [projectKey, selectedPi]);
 
-  // Load saved engineer capacity from Jira when engineers + sprint are known
-  useEffect(() => {
-    if (!data || !boardId || !selectedSprintId || !projectKey || !selectedSprintName) {
+  // Load the capacity for the selected sprint.
+  // If saved data exists → use it exactly.
+  // If not → fetch that sprint's assignees from Jira and show them with defaults.
+  const loadSprintCapacity = useCallback(async (sprintId: number, sprintName: string, force = false) => {
+    if (!boardId || !sprintId || !projectKey || !sprintName) {
       setEngineerRows([]);
       return;
     }
 
-    const initKey = `${boardId}:${selectedSprintId}`;
-    if (initKey === initKeyRef.current) return;
-    initKeyRef.current = initKey;
+    // Dedup guard lives INSIDE the function so it cannot be bypassed by
+    // external initKeyRef resets.  Set synchronously before the first
+    // await to prevent any concurrent call from slipping through.
+    const loadKey = `${boardId}:${sprintId}`;
+    if (!force && loadKey === initKeyRef.current) return;
+    initKeyRef.current = loadKey;
 
-    const freshRows: EngineerRow[] = data.engineers.map(({ name }) => ({
-      name,
-      isTechLead: false,
-      daysOut: 0,
-      capacityPct: DEFAULT_CAPACITY_PCT,
-    }));
-
-    const loadFromJira = async () => {
-      try {
-        const params = new URLSearchParams({
-          projectKey,
-          sprintId: selectedSprintId.toString(),
-          sprintName: selectedSprintName,
-        });
-        const res = await fetch(`/api/capacity/storage?${params}`);
-        const json = await res.json();
-        if (json.data) {
-          const payload = deserializeCapacity(json.data);
-          if (payload) {
-            const savedMap = new Map(payload.rows.map((r) => [r.name, r]));
-            const merged = freshRows.map((r) => savedMap.get(r.name) ?? r);
-            setEngineerRows(merged);
-            setSupportPct(payload.supportPct);
-            return;
-          }
+    setIsSprintLoading(true);
+    setSprintLoadError(null);
+    try {
+      // 1. Try the saved capacity story for this sprint
+      const storageParams = new URLSearchParams({
+        projectKey,
+        sprintId: sprintId.toString(),
+        sprintName,
+      });
+      const storageRes = await fetch(`/api/capacity/storage?${storageParams}`);
+      const storageJson = await storageRes.json();
+      if (storageJson.data) {
+        const payload = deserializeCapacity(storageJson.data as string);
+        if (payload) {
+          setEngineerRows(payload.rows);
+          setSupportPct(payload.supportPct);
+          return;
         }
-      } catch {
-        // Fall through to defaults on error
       }
-      setEngineerRows(freshRows);
-      setSupportPct(DEFAULT_SUPPORT_PCT);
-    };
 
-    loadFromJira();
-  }, [data, boardId, selectedSprintId, projectKey, selectedSprintName]);
+      // 2. No saved data — fetch assignees from both the selected sprint and the
+      //    current active sprint, then merge into a distinct sorted list.
+      const [selectedSprintRes, activeSprintRes] = await Promise.all([
+        fetch('/api/capacity/data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ boardId, sprintId }),
+        }),
+        fetch('/api/capacity/data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ boardId }), // no sprintId → active sprint
+        }),
+      ]);
+
+      const nameSet = new Set<string>();
+      const extractNames = (json: { engineers?: { name: string }[] }) => {
+        for (const { name } of json.engineers ?? []) nameSet.add(name);
+      };
+      if (selectedSprintRes.ok) extractNames(await selectedSprintRes.json());
+      if (activeSprintRes.ok) extractNames(await activeSprintRes.json());
+
+      const rows: EngineerRow[] = [...nameSet]
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+        .map((name) => ({ name, isTechLead: false, daysOut: 0, capacityPct: DEFAULT_CAPACITY_PCT }));
+      setEngineerRows(rows);
+      setSupportPct(DEFAULT_SUPPORT_PCT);
+    } catch (err) {
+      setSprintLoadError(err instanceof Error ? err.message : 'Failed to load capacity data');
+      setEngineerRows([]);
+    } finally {
+      setIsSprintLoading(false);
+    }
+  }, [boardId, projectKey]);
 
   // Save engineer capacity to Jira
   const handleSave = useCallback(async () => {
@@ -386,6 +433,26 @@ const CapacityContent = () => {
     }
   }, [projectKey, selectedSprintId, selectedSprintName, engineerRows, supportPct]);
 
+  // Reload: re-fetch from Jira for the selected sprint, same logic as initial load.
+  // Uses force=true to bypass the dedup guard so the user can always refresh.
+  const handleReload = useCallback(async () => {
+    if (isReloading || isSprintLoading) return;
+    if (!selectedSprintId || !selectedSprintName) return;
+    setIsReloading(true);
+    setReloadError(null);
+    setReloadInfo(null);
+    try {
+      initKeyRef.current = '';
+      await loadSprintCapacity(selectedSprintId, selectedSprintName, true);
+      setReloadInfo('Reloaded from Jira');
+      setTimeout(() => setReloadInfo(null), 3000);
+    } catch (err) {
+      setReloadError(err instanceof Error ? err.message : 'Reload failed');
+    } finally {
+      setIsReloading(false);
+    }
+  }, [isReloading, isSprintLoading, loadSprintCapacity, selectedSprintId, selectedSprintName]);
+
   // Save PI sprint selections to Jira
   const handleSavePiSprints = useCallback(async () => {
     if (!projectKey || !selectedPi) return;
@@ -409,23 +476,43 @@ const CapacityContent = () => {
     }
   }, [projectKey, selectedPi, selectedSprintIds]);
 
-  // Clear + reload when board changes
-  const prevBoardRef = useRef<number | undefined>(undefined);
-  useEffect(() => {
-    if (boardId === prevBoardRef.current) return;
-    prevBoardRef.current = boardId;
-    initKeyRef.current = '';
-    clear();
-    if (boardId) generate(boardId);
-  }, [boardId, generate, clear]);
-
   const handleSprintChange = useCallback((sprintId: number, sprintName: string) => {
     const params = new URLSearchParams(searchParamsRef.current.toString());
     params.set(QUERY_PARAM_KEYS.CAP_SPRINT, sprintId.toString());
     initKeyRef.current = '';
-    setSelectedSprintName(sprintName);
     router.push(`?${params.toString()}`, { scroll: false });
-  }, [router]);
+    loadSprintCapacity(sprintId, sprintName);
+  }, [router, loadSprintCapacity]);
+
+  // Narrow full sprint list to active sprint ±10
+  const visibleSprints = useMemo(() => {
+    if (allSprints.length === 0) return [];
+    const sorted = [...allSprints]
+      .filter((s) => s.startDate)
+      .sort((a, b) => a.startDate.localeCompare(b.startDate));
+    const activeIdx = sorted.findIndex((s) => s.state === 'active');
+    if (activeIdx < 0) return sorted.slice(Math.max(0, sorted.length - 20));
+    const start = Math.max(0, activeIdx - 10);
+    const end = Math.min(sorted.length, activeIdx + 11);
+    return sorted.slice(start, end);
+  }, [allSprints]);
+
+  // Auto-select the active sprint when sprints first load (previously done by the sidebar)
+  const hasAutoSelectedRef = useRef(false);
+  useEffect(() => {
+    if (visibleSprints.length === 0) { hasAutoSelectedRef.current = false; return; }
+    if (hasAutoSelectedRef.current) return;
+    hasAutoSelectedRef.current = true;
+    if (selectedSprintId !== null) {
+      // Page loaded with sprint already in URL (e.g. browser refresh) — trigger load directly
+      const sprint = allSprints.find((s) => s.id === selectedSprintId);
+      if (sprint) loadSprintCapacity(sprint.id, sprint.name);
+      return;
+    }
+    // No sprint selected yet — auto-select the active sprint
+    const target = visibleSprints.find((s) => s.state === 'active') ?? visibleSprints[0];
+    if (target) handleSprintChange(target.id, target.name);
+  }, [visibleSprints, selectedSprintId, allSprints, loadSprintCapacity, handleSprintChange]);
 
   const handlePiChange = useCallback((_: unknown, value: string | null) => {
     const params = new URLSearchParams(searchParamsRef.current.toString());
@@ -437,11 +524,10 @@ const CapacityContent = () => {
   }, [router]);
 
   const handleRefresh = useCallback(() => {
-    if (!boardId || isLoading) return;
+    if (isSprintLoading || !selectedSprintId || !selectedSprintName) return;
     initKeyRef.current = '';
-    clear();
-    generate(boardId);
-  }, [boardId, isLoading, clear, generate]);
+    loadSprintCapacity(selectedSprintId, selectedSprintName, true);
+  }, [isSprintLoading, loadSprintCapacity, selectedSprintId, selectedSprintName]);
 
   useEffect(() => {
     const checkConnection = async () => {
@@ -462,6 +548,12 @@ const CapacityContent = () => {
     );
   }, []);
 
+  const handleToggleIgnore = useCallback((name: string) => {
+    setEngineerRows((prev) =>
+      prev.map((r) => r.name === name ? { ...r, ignore: !r.ignore } : r)
+    );
+  }, []);
+
   const handleDaysOutChange = useCallback((name: string, value: number) => {
     setEngineerRows((prev) => prev.map((r) => r.name === name ? { ...r, daysOut: value } : r));
   }, []);
@@ -474,6 +566,8 @@ const CapacityContent = () => {
     setEngineerRows((prev) => prev.map((r) => r.name === name ? { ...r, notes: value } : r));
   }, []);
 
+  const [activeTab, setActiveTab] = useState(0);
+
   const selectedSprintsForPi = useMemo(
     () => allSprints.filter((s) => selectedSprintIds.includes(s.id)),
     [allSprints, selectedSprintIds]
@@ -483,178 +577,241 @@ const CapacityContent = () => {
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <Header connectionStatus={connectionStatus} />
       <Box sx={{ display: 'flex', flexGrow: 1, overflow: 'hidden' }}>
-        <Sidebar collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed}>
-          <SprintPlanningSidebarContent
-            boardId={boardId}
-            projectKey={projectKey}
-            selectedSprintId={selectedSprintId}
-            isLoading={isLoading}
-            onSprintChange={handleSprintChange}
-          />
-        </Sidebar>
-
         <MainContent>
-          {error && <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>}
+          <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
 
-          {data && engineerRows.length > 0 ? (
-            <Box sx={{ overflow: 'auto', height: '100%', p: 2 }}>
-              <Box sx={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
+            {/* ── Tab bar ── */}
+            <Tabs
+              value={activeTab}
+              onChange={(_, v) => setActiveTab(v)}
+              sx={{ borderBottom: 1, borderColor: 'divider', px: 2, flexShrink: 0 }}
+            >
+              <Tab label="Engineer Capacity" />
+              <Tab label="PI Sprint Selection" />
+            </Tabs>
 
-                {/* Left: Engineer capacity */}
-                <Box sx={{ flexShrink: 0 }}>
-                  <EngineerGrid
-                    sprintName={selectedSprintName}
-                    rows={engineerRows}
-                    supportPct={supportPct}
-                    onToggleTechLead={handleToggleTechLead}
-                    onDaysOutChange={handleDaysOutChange}
-                    onCapacityPctChange={handleCapacityPctChange}
-                    onNotesChange={handleNotesChange}
-                    onSupportPctChange={setSupportPct}
-                  />
-                  <Box sx={{ mt: 2 }}>
-                    <Button
-                      variant="contained"
-                      color="secondary"
-                      startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
-                      onClick={handleSave}
-                      disabled={isSaving || engineerRows.length === 0 || !projectKey || !selectedSprintId}
-                    >
-                      Save
-                    </Button>
-                  </Box>
-                  {saveError && (
-                    <Alert severity="error" onClose={() => setSaveError(null)} sx={{ mt: 1, maxWidth: 680 }}>
-                      {saveError}
-                    </Alert>
-                  )}
-                  {saveSuccess && (
-                    <Alert severity="success" sx={{ mt: 1, maxWidth: 680 }}>Saved to JIRA</Alert>
-                  )}
+            {/* ── Tab 0: Engineer Capacity ── */}
+            {activeTab === 0 && (
+              <Box sx={{ flexGrow: 1, overflow: 'auto', p: 2 }}>
+
+                {/* Sprint selector */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                  <TextField
+                    select
+                    size="small"
+                    label="Sprint"
+                    value={selectedSprintId ?? ''}
+                    onChange={(e) => {
+                      const id = Number(e.target.value);
+                      const sprint = visibleSprints.find((s) => s.id === id);
+                      if (sprint) handleSprintChange(id, sprint.name);
+                    }}
+                    sx={{ minWidth: 300 }}
+                    disabled={!boardId || sprintsLoading}
+                  >
+                    {visibleSprints.length === 0 ? (
+                      <MenuItem value="" disabled>
+                        {!boardId ? 'Select a board first' : sprintsLoading ? 'Loading sprints…' : 'No sprints found'}
+                      </MenuItem>
+                    ) : (
+                      visibleSprints.map((s) => (
+                        <MenuItem key={s.id} value={s.id}>
+                          {s.name}{s.state === 'active' ? ' (current)' : ''}
+                        </MenuItem>
+                      ))
+                    )}
+                  </TextField>
+                  {sprintsLoading && <CircularProgress size={18} />}
                 </Box>
 
-                {/* Right: PI sprint selection */}
-                <Box sx={{ minWidth: 340 }}>
-                  <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600 }}>
-                    PI Sprint Selection
-                  </Typography>
+                {sprintLoadError && (
+                  <Alert severity="error" sx={{ mb: 2 }}>{sprintLoadError}</Alert>
+                )}
 
-                  <Autocomplete
-                    options={PI_OPTIONS}
-                    value={selectedPi}
-                    onChange={handlePiChange}
-                    renderInput={(params) => (
-                      <TextField {...params} size="small" label="PI" placeholder="Select PI..." />
-                    )}
-                    sx={{ mb: 2 }}
-                    size="small"
-                    disabled={!projectKey}
-                  />
-
-                  {selectedPi && (
-                    <Box>
-                      {sprintsLoading ? (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                          <CircularProgress size={18} />
-                          <Typography variant="body2" color="text.secondary">Loading sprints...</Typography>
-                        </Box>
-                      ) : (
-                        <Autocomplete
-                          multiple
-                          disableCloseOnSelect
-                          size="small"
-                          options={allSprints}
-                          value={selectedSprintsForPi}
-                          getOptionLabel={(option) => option.name}
-                          isOptionEqualToValue={(option, value) => option.id === value.id}
-                          onChange={(_e, newValue) => setSelectedSprintIds(newValue.map((s) => s.id))}
-                          slotProps={{ chip: { size: 'small' } }}
-                          renderOption={(props, option, { selected }) => {
-                            const { key, ...rest } = props;
-                            return (
-                              <li key={key} {...rest}>
-                                <Checkbox
-                                  icon={<CheckBoxOutlineBlankIcon fontSize="small" />}
-                                  checkedIcon={<CheckBoxIcon fontSize="small" />}
-                                  sx={{ mr: 1 }}
-                                  checked={selected}
-                                />
-                                <Box>
-                                  <Typography variant="body2">{option.name}</Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    {formatDateShort(option.startDate)} – {formatDateShort(option.endDate)}
-                                  </Typography>
-                                </Box>
-                              </li>
-                            );
-                          }}
-                          renderInput={(params) => (
-                            <TextField
-                              {...params}
-                              placeholder={selectedSprintIds.length > 0 ? '' : 'Select sprints...'}
-                            />
-                          )}
-                          sx={{ mb: 2, '& .MuiAutocomplete-inputRoot': { flexWrap: 'wrap' } }}
-                        />
-                      )}
-
+                {engineerRows.length > 0 ? (
+                  <Box>
+                    <EngineerGrid
+                      sprintName={selectedSprintName}
+                      rows={engineerRows}
+                      supportPct={supportPct}
+                      onToggleTechLead={handleToggleTechLead}
+                      onToggleIgnore={handleToggleIgnore}
+                      onDaysOutChange={handleDaysOutChange}
+                      onCapacityPctChange={handleCapacityPctChange}
+                      onNotesChange={handleNotesChange}
+                      onSupportPctChange={setSupportPct}
+                    />
+                    <Box sx={{ mt: 2, display: 'flex', gap: 1.5, alignItems: 'center' }}>
                       <Button
                         variant="contained"
-                        startIcon={isPiSaving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
-                        onClick={handleSavePiSprints}
-                        disabled={isPiSaving || !projectKey || !selectedPi}
+                        color="secondary"
+                        startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+                        onClick={handleSave}
+                        disabled={isSaving || engineerRows.length === 0 || !projectKey || !selectedSprintId}
                       >
                         Save
                       </Button>
-                      {piSaveError && (
-                        <Alert severity="error" onClose={() => setPiSaveError(null)} sx={{ mt: 1 }}>
-                          {piSaveError}
-                        </Alert>
-                      )}
-                      {piSaveSuccess && (
-                        <Alert severity="success" sx={{ mt: 1 }}>Saved to JIRA</Alert>
-                      )}
+                      <Button
+                        variant="outlined"
+                        startIcon={isReloading ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />}
+                        onClick={handleReload}
+                        disabled={isReloading || !boardId}
+                      >
+                        Reload from Jira
+                      </Button>
                     </Box>
-                  )}
-                </Box>
-
+                    {saveError && (
+                      <Alert severity="error" onClose={() => setSaveError(null)} sx={{ mt: 1, maxWidth: 680 }}>
+                        {saveError}
+                      </Alert>
+                    )}
+                    {saveSuccess && (
+                      <Alert severity="success" sx={{ mt: 1, maxWidth: 680 }}>Saved to JIRA</Alert>
+                    )}
+                    {reloadError && (
+                      <Alert severity="error" onClose={() => setReloadError(null)} sx={{ mt: 1, maxWidth: 680 }}>
+                        {reloadError}
+                      </Alert>
+                    )}
+                    {reloadInfo && (
+                      <Alert severity="info" sx={{ mt: 1, maxWidth: 680 }}>{reloadInfo}</Alert>
+                    )}
+                  </Box>
+                ) : (
+                  <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'text.secondary' }}>
+                    {isSprintLoading ? (
+                      <>
+                        <CircularProgress sx={{ mb: 2 }} />
+                        <Typography variant="h6" gutterBottom>Loading Engineer Data...</Typography>
+                      </>
+                    ) : (
+                      <>
+                        <Typography variant="h6" gutterBottom>
+                          {!projectKey ? 'Select a Project' : !boardId ? 'Select a Board' : !selectedSprintId ? 'Select a Sprint above' : 'No engineers found for this sprint'}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {!projectKey ? 'Choose a JIRA project to get started' : !boardId ? 'Choose a board to continue' : ''}
+                        </Typography>
+                      </>
+                    )}
+                  </Box>
+                )}
               </Box>
-            </Box>
-          ) : (
-            <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'text.secondary' }}>
-              {isLoading ? (
-                <>
-                  <CircularProgress sx={{ mb: 2 }} />
-                  <Typography variant="h6" gutterBottom>Loading Engineer Data...</Typography>
-                </>
-              ) : (
-                <>
-                  <Typography variant="h6" gutterBottom>
-                    {!projectKey ? 'Select a Project' : !boardId ? 'Select a Board' : data && engineerRows.length === 0 ? 'No engineers found in active sprint' : 'Waiting for board selection...'}
+            )}
+
+            {/* ── Tab 1: PI Sprint Selection ── */}
+            {activeTab === 1 && (
+              <Box sx={{ flexGrow: 1, overflow: 'auto', p: 2 }}>
+                <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600 }}>
+                  PI Sprint Selection
+                </Typography>
+
+                <Autocomplete
+                  options={PI_OPTIONS}
+                  value={selectedPi}
+                  onChange={handlePiChange}
+                  renderInput={(params) => (
+                    <TextField {...params} size="small" label="PI" placeholder="Select PI..." />
+                  )}
+                  sx={{ mb: 2, maxWidth: 340 }}
+                  size="small"
+                  disabled={!projectKey}
+                />
+
+                {!projectKey && (
+                  <Typography variant="body2" color="text.secondary">
+                    Select a project to get started.
                   </Typography>
-                  <Typography variant="body2">
-                    {!projectKey ? 'Choose a JIRA project to get started' : !boardId ? 'Choose a board to load engineers' : ''}
-                  </Typography>
-                </>
-              )}
-            </Box>
-          )}
+                )}
+
+                {selectedPi && (
+                  <Box sx={{ maxWidth: 560 }}>
+                    {sprintsLoading ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                        <CircularProgress size={18} />
+                        <Typography variant="body2" color="text.secondary">Loading sprints...</Typography>
+                      </Box>
+                    ) : (
+                      <Autocomplete
+                        multiple
+                        disableCloseOnSelect
+                        size="small"
+                        options={allSprints}
+                        value={selectedSprintsForPi}
+                        getOptionLabel={(option) => option.name}
+                        isOptionEqualToValue={(option, value) => option.id === value.id}
+                        onChange={(_e, newValue) => setSelectedSprintIds(newValue.map((s) => s.id))}
+                        slotProps={{ chip: { size: 'small' } }}
+                        renderOption={(props, option, { selected }) => {
+                          const { key, ...rest } = props;
+                          return (
+                            <li key={key} {...rest}>
+                              <Checkbox
+                                icon={<CheckBoxOutlineBlankIcon fontSize="small" />}
+                                checkedIcon={<CheckBoxIcon fontSize="small" />}
+                                sx={{ mr: 1 }}
+                                checked={selected}
+                              />
+                              <Box>
+                                <Typography variant="body2">{option.name}</Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {formatDateShort(option.startDate)} – {formatDateShort(option.endDate)}
+                                </Typography>
+                              </Box>
+                            </li>
+                          );
+                        }}
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            placeholder={selectedSprintIds.length > 0 ? '' : 'Select sprints...'}
+                          />
+                        )}
+                        sx={{ mb: 2, '& .MuiAutocomplete-inputRoot': { flexWrap: 'wrap' } }}
+                      />
+                    )}
+
+                    <Button
+                      variant="contained"
+                      startIcon={isPiSaving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+                      onClick={handleSavePiSprints}
+                      disabled={isPiSaving || !projectKey || !selectedPi}
+                    >
+                      Save
+                    </Button>
+                    {piSaveError && (
+                      <Alert severity="error" onClose={() => setPiSaveError(null)} sx={{ mt: 1 }}>
+                        {piSaveError}
+                      </Alert>
+                    )}
+                    {piSaveSuccess && (
+                      <Alert severity="success" sx={{ mt: 1 }}>Saved to JIRA</Alert>
+                    )}
+                  </Box>
+                )}
+              </Box>
+            )}
+
+          </Box>
         </MainContent>
       </Box>
 
-      <Tooltip title="Refresh engineers from JIRA">
-        <span>
-          <Fab
-            color="primary"
-            aria-label="refresh"
-            onClick={handleRefresh}
-            disabled={isLoading || !boardId}
-            sx={{ position: 'fixed', bottom: 24, right: 24 }}
-          >
-            {isLoading ? <CircularProgress size={24} color="inherit" /> : <RefreshIcon />}
-          </Fab>
-        </span>
-      </Tooltip>
+      {/* FAB only relevant on the Engineer Capacity tab */}
+      {activeTab === 0 && (
+        <Tooltip title="Refresh engineers from JIRA">
+          <span>
+            <Fab
+              color="primary"
+              aria-label="refresh"
+              onClick={handleRefresh}
+              disabled={isSprintLoading || !boardId || !selectedSprintId}
+              sx={{ position: 'fixed', bottom: 24, right: 24 }}
+            >
+              {isSprintLoading ? <CircularProgress size={24} color="inherit" /> : <RefreshIcon />}
+            </Fab>
+          </span>
+        </Tooltip>
+      )}
     </Box>
   );
 };

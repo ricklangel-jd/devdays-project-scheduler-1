@@ -252,13 +252,26 @@ const CarryoverTrendChart = ({ data }: CarryoverTrendChartProps) => {
                     )}
 
                     {points.map((p, idx) => (
-                      <circle
-                        key={idx}
-                        cx={p.x} cy={p.y} r={selectedProject === pk ? POINT_RADIUS + 1 : POINT_RADIUS}
-                        fill={color} stroke="white" strokeWidth={1.5}
-                      >
-                        <title>{`${projectNames.get(pk) ?? pk}: ${p.carryover} pts (${p.sprintName})`}</title>
-                      </circle>
+                      <g key={idx}>
+                        <circle
+                          cx={p.x} cy={p.y} r={selectedProject === pk ? POINT_RADIUS + 1 : POINT_RADIUS}
+                          fill={color} stroke="white" strokeWidth={1.5}
+                        >
+                          <title>{`${projectNames.get(pk) ?? pk}: ${p.carryover} pts (${p.sprintName})`}</title>
+                        </circle>
+                        <text
+                          x={p.x}
+                          y={p.y - (POINT_RADIUS + 6)}
+                          textAnchor="middle"
+                          dominantBaseline="auto"
+                          fontSize={10}
+                          fill={color}
+                          fontWeight="600"
+                          pointerEvents="none"
+                        >
+                          {p.carryover}
+                        </text>
+                      </g>
                     ))}
                   </g>
                 );

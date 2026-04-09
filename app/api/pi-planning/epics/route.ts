@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getJiraClient, EXCLUDE_MAINFRAME } from '@/backend/jira';
+import { getJiraClient, EXCLUDE_MAINFRAME, WORK_ITEM_ISSUE_TYPES } from '@/backend/jira';
 import type { FieldConfig } from '@/backend/jira/mappers';
 
 const STORY_POINT_ESTIMATE_FIELD = 'customfield_10016';
@@ -47,7 +47,7 @@ export const GET = async (request: NextRequest) => {
     const epicsResponse = await client.searchAllIssues(epicJql, [STORY_POINT_ESTIMATE_FIELD, 'priority']);
 
     // Fetch all non-done, non-canceled child stories/tasks in one query
-    const childJql = `issuetype in (Story, Task, "Service Ticket") AND project = ${projectKey} AND statusCategory != Done AND status != "Canceled" AND ${EXCLUDE_MAINFRAME} AND "Epic Link" is not EMPTY ORDER BY key ASC`;
+    const childJql = `issuetype in (${WORK_ITEM_ISSUE_TYPES}, "Service Ticket") AND project = ${projectKey} AND statusCategory != Done AND status != "Canceled" AND ${EXCLUDE_MAINFRAME} AND "Epic Link" is not EMPTY ORDER BY key ASC`;
     const childrenResponse = await client.searchAllIssues(childJql, [STORY_POINT_ESTIMATE_FIELD]);
 
     // Aggregate child story points per epic

@@ -22,10 +22,12 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Alert from '@mui/material/Alert';
 import Divider from '@mui/material/Divider';
 import Collapse from '@mui/material/Collapse';
+import Tooltip from '@mui/material/Tooltip';
 import IconButton from '@mui/material/IconButton';
 import AddIcon from '@mui/icons-material/Add';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { Header } from '@/frontend/components';
 import ProjectSearch from '@/frontend/components/sidebar/ProjectSearch';
 import BoardSelector from '@/frontend/components/sidebar/BoardSelector';
@@ -156,12 +158,12 @@ const computeEngineerOutputAverage = (row: SprintMetricsRow, engCount: number): 
 
 // ── MetricsGrid sort types ────────────────────────────────────────────
 
-type MetricsSortField = 'projectKey' | 'sprintName' | 'capacity' | 'day1Points' | 'resolvedPoints' | 'lastDayPoints' | 'scopeChangeInPoints' | 'scopeChangeOutPoints' | 'carryoverPoints' | 'carryoverAllPoints' | 'adjustedCombinedOutput' | 'engineerOutputAverage' | 'planningAccuracy' | 'day1AllPointed' | 'velocity' | 'velocitySwing' | 'engineerCount' | 'completedVsPlanned' | 'serviceDeskHours';
+type MetricsSortField = 'projectKey' | 'sprintName' | 'capacity' | 'day1Points' | 'resolvedPoints' | 'lastDayPoints' | 'scopeChangeInPoints' | 'scopeChangeOutPoints' | 'carryoverPoints' | 'carryoverAllPoints' | 'adjustedCombinedOutput' | 'engineerOutputAverage' | 'planningAccuracy' | 'velocity' | 'engineerCount' | 'completedVsPlanned' | 'serviceDeskHours';
 type SortDirection = 'asc' | 'desc';
 
 // ── IssueDetailGrid sort types ────────────────────────────────────────
 
-type IssueSortField = 'key' | 'summary' | 'sprintName' | 'points';
+type IssueSortField = 'key' | 'summary' | 'sprintName' | 'points' | 'assignee';
 
 // ── Component ─────────────────────────────────────────────────────────
 
@@ -380,7 +382,7 @@ const SprintMetricsContent = () => {
   );
 
   const getEngineerCount = useCallback(
-    (projectKey: string): number => engineerCounts.get(projectKey) ?? 5,
+    (projectKey: string): number => engineerCounts.get(projectKey) ?? 6,
     [engineerCounts]
   );
 
@@ -552,13 +554,15 @@ const SprintMetricsContent = () => {
               </Typography>
             )}
 
-            {/* ── Detail Grid + Legend ─────────────────────────────────── */}
-            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', alignItems: 'flex-start', mt: 'auto', pt: 1 }}>
+            {/* ── Detail Grid ──────────────────────────────────────────── */}
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 'auto', pt: 1 }}>
               <IssueDetailGrid issues={detailIssues} selectedCell={selectedCell} data={data} />
-              <LegendPanel />
             </Box>
           </Box>
         )}
+
+        {/* ── Floating Legend (Sprint Facts tab only) ───────────────── */}
+        {activeTab === 0 && <LegendPanel />}
 
         {/* ── Trend Velocity tab ────────────────────────────────────── */}
         {activeTab === 1 && data && data.grids.length > 0 && (
@@ -587,29 +591,87 @@ const SprintMetricsContent = () => {
 // ── LegendPanel sub-component ────────────────────────────────────────
 
 const LegendPanel = () => {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const dragging = useRef(false);
+  const dragMoved = useRef(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+
+  // Set initial position top-right (aligned with controls bar) after mount (avoids SSR window access)
+  useEffect(() => {
+    setPos({
+      x: window.innerWidth - 404,
+      y: 80,
+    });
+  }, []);
+
+  // Global mouse handlers for drag
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragging.current) return;
+      dragMoved.current = true;
+      setPos({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y });
+    };
+    const onUp = () => { dragging.current = false; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    dragging.current = true;
+    dragMoved.current = false;
+    dragOffset.current = { x: e.clientX - (pos?.x ?? 0), y: e.clientY - (pos?.y ?? 0) };
+    e.preventDefault(); // prevent text selection while dragging
+  };
+
+  const handleHeaderClick = () => {
+    if (!dragMoved.current) setOpen((v) => !v);
+  };
+
+  if (!pos) return null;
 
   return (
-    <Paper elevation={1} sx={{ minWidth: 340, maxWidth: 560, flexShrink: 0, bgcolor: 'grey.50', overflow: 'hidden' }}>
-      {/* Header / toggle row */}
+    <Paper
+      elevation={4}
+      sx={{
+        position: 'fixed',
+        top: pos.y,
+        left: pos.x,
+        width: 380,
+        zIndex: 1100,
+        bgcolor: 'grey.50',
+        overflow: 'hidden',
+        userSelect: 'none',
+      }}
+    >
+      {/* Header / toggle row — drag handle + collapse toggle */}
       <Box
-        onClick={() => setOpen((v) => !v)}
+        onMouseDown={handleMouseDown}
+        onClick={handleHeaderClick}
         sx={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          px: 2, py: 0.75, cursor: 'pointer',
+          px: 1.5, py: 0.75, cursor: 'grab',
           '&:hover': { bgcolor: 'grey.100' },
+          '&:active': { cursor: 'grabbing' },
         }}
       >
-        <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.75rem' }}>
-          Column Definitions
-        </Typography>
-        <IconButton size="small" sx={{ p: 0.25, transition: 'transform 200ms', transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <DragIndicatorIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
+          <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.75rem' }}>
+            Calculated Field Legend
+          </Typography>
+        </Box>
+        <IconButton size="small" sx={{ p: 0.25, transition: 'transform 200ms', transform: open ? 'rotate(0deg)' : 'rotate(180deg)' }}>
           <ExpandMoreIcon fontSize="small" />
         </IconButton>
       </Box>
 
       <Collapse in={open}>
-        <Box sx={{ px: 2, pb: 1.5 }}>
+        <Box sx={{ px: 2, pb: 1.5, maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
           {/* Commitments */}
           <Typography variant="caption" fontWeight={600} color="text.primary" sx={{ display: 'block', mt: 0.5 }}>
             Commitments
@@ -617,7 +679,7 @@ const LegendPanel = () => {
           <Typography variant="caption" component="div" color="text.secondary" sx={{ lineHeight: 1.65, pl: 1 }}>
             <b>Day 1 Pts</b> — stories in the sprint at the official start (Wed noon); excludes stories added after the cutoff and stories punted before the cutoff<br />
             <b>Scope In</b> — points added to the sprint after Wed noon<br />
-            <b>Scope Out</b> — day-1 story points removed mid-sprint (excludes early punts before Wed noon and last-day removals)<br />
+            <b>Scope Out</b> = Day 1 Pts + Scope In − Carryover (All)<br />
             <b>Capacity</b> — total engineer-days entered in the sidebar (or from the Jira capacity story)
           </Typography>
 
@@ -639,12 +701,10 @@ const LegendPanel = () => {
           </Typography>
           <Typography variant="caption" component="div" color="text.secondary" sx={{ lineHeight: 1.65, pl: 1 }}>
             <b>3 Sprint Velocity</b> = (Resolved this sprint + 2 prior sprints) ÷ 3<br />
-            <b>Velocity Swing %</b> = (Resolved − 3 Sprint Velocity) ÷ 3 Sprint Velocity<br />
             <b>% Completed vs Planned</b> = Resolved ÷ Day 1 Pts<br />
             <b>Adjusted Combined Output</b> = Resolved + SD credit, where SD credit = 1 if 0 &lt; SD hrs &lt; 5, else SD hrs ÷ 5 (rounded to tenth)<br />
             <b>Engineer Output Avg</b> = Adjusted Combined Output ÷ Eng Count (rounded to tenth)<br />
-            <b>Planning Accuracy</b> = Day 1 Pts ÷ Capacity (as %)<br />
-            <b>Day 1 Stories Pointed</b> — ✓ if every day-1 story (excl. Service Tickets) had points at sprint start; ✗ lists unpointed stories (click to view)
+            <b>Planning Accuracy</b> = Day 1 Pts ÷ Capacity (as %)
           </Typography>
         </Box>
       </Collapse>
@@ -694,12 +754,7 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
       case 'adjustedCombinedOutput': return computeAdjustedCombinedOutput(row);
       case 'engineerOutputAverage': return computeEngineerOutputAverage(row, row.jiraEngineerCount ?? getEngineerCount(row.projectKey));
       case 'planningAccuracy': return computePlanningAccuracy(row, row.jiraCapacity ?? getCapacity(row.projectKey));
-      case 'day1AllPointed': return row.day1AllPointed ? 1 : 0;
       case 'velocity': return velocityMap.get(row.projectKey) ?? 0;
-      case 'velocitySwing': {
-        const vel = velocityMap.get(row.projectKey) ?? 0;
-        return vel === 0 ? -Infinity : ((row.resolvedPoints - vel) / vel) * 100;
-      }
       case 'engineerCount': return row.jiraEngineerCount ?? getEngineerCount(row.projectKey);
       case 'completedVsPlanned': return row.day1Points === 0 ? -Infinity : (row.resolvedPoints / row.day1Points) * 100;
       case 'serviceDeskHours': return row.serviceDeskHoursResolved;
@@ -760,7 +815,7 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
   // Helper for clickable cell styling
   const clickableCellSx = (projectKey: string, column: string) => ({
     ...compactCellSx,
-    textAlign: 'right' as const,
+    textAlign: 'center' as const,
     cursor: 'pointer',
     color: 'primary.main',
     '&:hover': { bgcolor: 'action.hover' },
@@ -769,7 +824,7 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
       : {}),
   });
 
-  const sortHeader = (field: MetricsSortField, label: string, align: 'left' | 'right' = 'right') => (
+  const sortHeader = (field: MetricsSortField, label: string, align: 'left' | 'center' = 'center') => (
     <TableCell sx={{ ...compactHeaderSx, textAlign: align }}>
       <TableSortLabel
         active={sortField === field}
@@ -802,14 +857,12 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
               {sortHeader('carryoverPoints', 'Carryover')}
               {sortHeader('carryoverAllPoints', 'Carryover (All)')}
               {sortHeader('velocity', '3 Sprint Velocity')}
-              {sortHeader('velocitySwing', 'Velocity Swing %')}
               {sortHeader('engineerCount', 'Eng Count (excl TL)')}
               {sortHeader('completedVsPlanned', '% Completed vs Planned')}
               {sortHeader('serviceDeskHours', 'SD/Splunk Hours Resolved')}
               {sortHeader('adjustedCombinedOutput', 'Adjusted Combined Output')}
               {sortHeader('engineerOutputAverage', 'Engineer Output Average')}
               {sortHeader('planningAccuracy', 'Planning Accuracy')}
-              {sortHeader('day1AllPointed', 'Day 1 Stories Pointed')}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -817,7 +870,7 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
               <TableRow key={row.projectKey} hover sx={{ '&:nth-of-type(even)': { bgcolor: 'grey.50' } }}>
                 <TableCell sx={compactCellSx}>{row.projectName}</TableCell>
                 <TableCell sx={compactCellSx}>{row.sprintName}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>
                   {row.jiraCapacity !== null ? (
                     <Box component="span" title="From Jira Capacity page" sx={{ fontStyle: 'italic' }}>
                       {row.jiraCapacity}
@@ -830,7 +883,7 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
                       onChange={(e) =>
                         onCapacityChange(row.projectKey, parseInt(e.target.value, 10) || 0)
                       }
-                      slotProps={{ htmlInput: { min: 0, style: { textAlign: 'right', fontSize: '0.75rem', padding: '2px 4px' } } }}
+                      slotProps={{ htmlInput: { min: 0, style: { textAlign: 'center', fontSize: '0.75rem', padding: '2px 4px' } } }}
                       sx={{ width: 60 }}
                       variant="standard"
                     />
@@ -878,22 +931,28 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
                 >
                   {row.carryoverAllPoints}
                 </TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{velocityMap.get(row.projectKey) ?? 0}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
-                  {(() => {
-                    const vel = velocityMap.get(row.projectKey) ?? 0;
-                    if (vel === 0) return '—';
-                    const swing = ((row.resolvedPoints - vel) / vel) * 100;
-                    const rounded = Math.round(swing);
-                    const color = rounded > 0 ? 'success.main' : rounded < 0 ? 'error.main' : undefined;
-                    return <Box component="span" sx={color ? { color } : undefined}>{`${swing >= 0 ? '+' : ''}${rounded}%`}</Box>;
-                  })()}
-                </TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>{velocityMap.get(row.projectKey) ?? 0}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>
                   {row.jiraEngineerCount !== null ? (
-                    <Box component="span" title="From Jira Capacity page" sx={{ fontStyle: 'italic' }}>
-                      {row.jiraEngineerCount}
-                    </Box>
+                    <Tooltip
+                      title={
+                        row.engineerRows && row.engineerRows.length > 0 ? (
+                          <Box sx={{ fontSize: 12, lineHeight: 1.6 }}>
+                            {row.engineerRows.map((eng) => (
+                              <Box key={eng.name}>
+                                {eng.name}
+                                {eng.daysOut > 0 ? ` (${eng.daysOut}d out)` : ''}
+                              </Box>
+                            ))}
+                          </Box>
+                        ) : 'From Jira Capacity page'
+                      }
+                      placement="left"
+                    >
+                      <Box component="span" sx={{ fontStyle: 'italic', cursor: 'default' }}>
+                        {row.jiraEngineerCount}
+                      </Box>
+                    </Tooltip>
                   ) : (
                     <TextField
                       type="number"
@@ -902,13 +961,13 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
                       onChange={(e) =>
                         onEngineerCountChange(row.projectKey, parseInt(e.target.value, 10) || 0)
                       }
-                      slotProps={{ htmlInput: { min: 0, style: { textAlign: 'right', fontSize: '0.75rem', padding: '2px 4px' } } }}
+                      slotProps={{ htmlInput: { min: 0, style: { textAlign: 'center', fontSize: '0.75rem', padding: '2px 4px' } } }}
                       sx={{ width: 60 }}
                       variant="standard"
                     />
                   )}
                 </TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>
                   {(() => {
                     if (row.day1Points === 0) return '—';
                     const pct = Math.round((row.resolvedPoints / row.day1Points) * 100);
@@ -922,22 +981,14 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
                 >
                   {row.serviceDeskHoursResolved}
                 </TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>
                   {computeAdjustedCombinedOutput(row)}
                 </TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>
                   {computeEngineerOutputAverage(row, row.jiraEngineerCount ?? getEngineerCount(row.projectKey))}
                 </TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>
                   {computePlanningAccuracy(row, row.jiraCapacity ?? getCapacity(row.projectKey))}%
-                </TableCell>
-                <TableCell
-                  sx={{ ...clickableCellSx(row.projectKey, 'day1Unpointed'), textAlign: 'center' }}
-                  onClick={() => onCellClick(grid.offset, row.projectKey, 'day1Unpointed')}
-                >
-                  <Box component="span" sx={{ color: row.day1AllPointed ? 'success.main' : 'error.main', fontWeight: 700 }}>
-                    {row.day1AllPointed ? '✓' : '✗'}
-                  </Box>
                 </TableCell>
               </TableRow>
             ))}
@@ -947,25 +998,17 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
               <TableRow sx={{ '& td': { fontWeight: 700 }, bgcolor: 'grey.100', borderTop: 2, borderColor: 'divider' }}>
                 <TableCell sx={compactCellSx}>Total</TableCell>
                 <TableCell sx={compactCellSx} />
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.capacity}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.day1}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.resolved}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.lastDay}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.scopeChangeIn}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.scopeChangeOut}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.carryover}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.carryoverAll}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.velocity}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
-                  {(() => {
-                    if (totals.velocity === 0) return '—';
-                    const swing = Math.round((totals.resolved - totals.velocity) / totals.velocity * 100);
-                    const color = swing > 0 ? 'success.main' : swing < 0 ? 'error.main' : undefined;
-                    return <Box component="span" sx={color ? { color } : undefined}>{`${swing >= 0 ? '+' : ''}${swing}%`}</Box>;
-                  })()}
-                </TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.engineers}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>{totals.capacity}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>{totals.day1}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>{totals.resolved}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>{totals.lastDay}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>{totals.scopeChangeIn}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>{totals.scopeChangeOut}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>{totals.carryover}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>{totals.carryoverAll}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>{totals.velocity}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>{totals.engineers}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>
                   {(() => {
                     if (totals.day1 === 0) return '—';
                     const pct = Math.round((totals.resolved / totals.day1) * 100);
@@ -973,16 +1016,10 @@ const MetricsGrid = ({ grid, getCapacity, onCapacityChange, getEngineerCount, on
                     return <Box component="span" sx={{ color }}>{`${pct}%`}</Box>;
                   })()}
                 </TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.serviceDeskHoursTotal}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.adjustedCombinedOutput}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.engineerOutputAverage}</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{totals.planningAccuracy}%</TableCell>
-                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>
-                  {(() => {
-                    const allPointed = grid.rows.every((r) => r.day1AllPointed);
-                    return <Box component="span" sx={{ color: allPointed ? 'success.main' : 'error.main', fontWeight: 700 }}>{allPointed ? '✓' : '✗'}</Box>;
-                  })()}
-                </TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>{totals.serviceDeskHoursTotal}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>{totals.adjustedCombinedOutput}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>{totals.engineerOutputAverage}</TableCell>
+                <TableCell sx={{ ...compactCellSx, textAlign: 'center' }}>{totals.planningAccuracy}%</TableCell>
               </TableRow>
             )}
           </TableBody>
@@ -1034,6 +1071,7 @@ const IssueDetailGrid = ({ issues, selectedCell, data }: IssueDetailGridProps) =
         case 'summary': return mult * a.summary.localeCompare(b.summary);
         case 'sprintName': return mult * a.sprintName.localeCompare(b.sprintName);
         case 'points': return mult * (a.points - b.points);
+        case 'assignee': return mult * (a.assignee ?? '').localeCompare(b.assignee ?? '');
         default: return 0;
       }
     });
@@ -1064,7 +1102,7 @@ const IssueDetailGrid = ({ issues, selectedCell, data }: IssueDetailGridProps) =
   );
 
   return (
-    <Paper elevation={1} sx={{ flex: 1, maxWidth: 600, maxHeight: 300, overflow: 'auto' }}>
+    <Paper elevation={1} sx={{ flex: 1, maxHeight: 300, overflow: 'auto' }}>
       <Typography variant="caption" fontWeight={700} sx={{ px: 1.5, pt: 1, pb: 0.5, display: 'block', bgcolor: 'grey.50', position: 'sticky', top: 0, zIndex: 1 }}>
         {selectedCell ? `${projectDisplayName} — ${columnLabel} (${issues.length} issues)` : 'Issue Details'}
       </Typography>
@@ -1077,12 +1115,13 @@ const IssueDetailGrid = ({ issues, selectedCell, data }: IssueDetailGridProps) =
           No issues for this cell.
         </Typography>
       ) : (
-        <TableContainer>
+        <TableContainer sx={{ '& td, & th': { whiteSpace: 'nowrap' } }}>
           <Table size="small" stickyHeader>
             <TableHead>
               <TableRow>
                 {sortHeader('key', 'Key')}
                 {sortHeader('summary', 'Summary')}
+                {sortHeader('assignee', 'Assignee')}
                 {sortHeader('sprintName', 'Sprint')}
                 {sortHeader('points', 'Story Points', 'right')}
               </TableRow>
@@ -1101,9 +1140,10 @@ const IssueDetailGrid = ({ issues, selectedCell, data }: IssueDetailGridProps) =
                       {issue.key}
                     </Link>
                   </TableCell>
-                  <TableCell sx={{ ...compactCellSx, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <TableCell sx={compactCellSx}>
                     {issue.summary}
                   </TableCell>
+                  <TableCell sx={compactCellSx}>{issue.assignee ?? '—'}</TableCell>
                   <TableCell sx={compactCellSx}>{issue.sprintName}</TableCell>
                   <TableCell sx={{ ...compactCellSx, textAlign: 'right' }}>{issue.points}</TableCell>
                 </TableRow>

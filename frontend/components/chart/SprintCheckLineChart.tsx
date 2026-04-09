@@ -11,8 +11,11 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Link from '@mui/material/Link';
+import TextField from '@mui/material/TextField';
+import MenuItem from '@mui/material/MenuItem';
 import { EPIC_COLORS } from '@/shared/constants';
 import type { SprintCheckData, TicketDetail } from '@/frontend/hooks/useSprintCheckData';
+import { computeEngineerCapacity, computeTotalCapacity, type EngineerRow } from '@/shared/lib/capacity';
 
 const JIRA_BASE_URL = process.env.NEXT_PUBLIC_JIRA_BASE_URL || '';
 
@@ -23,6 +26,10 @@ interface SprintCheckLineChartProps {
   highlightedSprintId: number | null;
   onEngineerHighlight: (engineer: string) => void;
   onDataPointClick: (engineer: string, sprintId: number) => void;
+  capacityRows?: EngineerRow[];
+  capacitySupportPct?: number;
+  selectedCapacitySprintId?: number | null;
+  onCapacitySprintChange?: (sprintId: number) => void;
 }
 
 // Chart layout constants
@@ -87,7 +94,7 @@ const TicketDetailGrid = ({
     : 'all selected sprints';
 
   return (
-    <Paper sx={{ p: 1.5, minWidth: 380, maxWidth: 520, maxHeight: CHART_HEIGHT + 60, overflow: 'hidden', display: 'flex', flexDirection: 'column' }} elevation={1}>
+    <Paper sx={{ p: 1.5, flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }} elevation={1}>
       {highlightedEngineer ? (
         <>
           <Typography variant="subtitle2" sx={{ mb: 0.25, fontSize: 13 }}>
@@ -153,6 +160,70 @@ const TicketDetailGrid = ({
   );
 };
 
+/** Read-only engineer capacity grid for Sprint Check page */
+const ReadOnlyCapacityGrid = ({
+  rows,
+  supportPct,
+}: {
+  rows: EngineerRow[];
+  supportPct: number;
+}) => {
+  const totalCapacity = computeTotalCapacity(rows, supportPct);
+  const colSx = { fontSize: '0.78rem', py: 0.4, px: 1 };
+  const headerSx = { ...colSx, fontWeight: 700, bgcolor: 'grey.100', whiteSpace: 'nowrap' as const };
+
+  return (
+    <Paper sx={{ p: 1, flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }} elevation={1}>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 0.5 }}>
+        <Typography variant="subtitle2" sx={{ fontSize: 13 }}>
+          Engineer Capacity
+        </Typography>
+        <Typography variant="caption" color="primary.main" sx={{ fontWeight: 600 }}>
+          {totalCapacity} pts{supportPct > 0 ? ` (${supportPct}% support)` : ''}
+        </Typography>
+      </Box>
+      <TableContainer sx={{ flex: 1, overflow: 'auto' }}>
+        <Table size="small" stickyHeader>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={headerSx}>Engineer</TableCell>
+              <TableCell sx={{ ...headerSx, textAlign: 'center' }}>TL</TableCell>
+              <TableCell sx={{ ...headerSx, textAlign: 'right' }}>Days Out</TableCell>
+              <TableCell sx={{ ...headerSx, textAlign: 'right' }}>% Cap</TableCell>
+              <TableCell sx={{ ...headerSx, textAlign: 'right' }}>Capacity</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {rows.map((row) => {
+              const capacity = computeEngineerCapacity(row);
+              return (
+                <TableRow
+                  key={row.name}
+                  sx={{ '&:nth-of-type(even)': { bgcolor: 'grey.50' }, opacity: row.ignore ? 0.45 : 1 }}
+                >
+                  <TableCell sx={colSx}>{row.name}</TableCell>
+                  <TableCell sx={{ ...colSx, textAlign: 'center', color: row.isTechLead ? 'primary.main' : 'transparent' }}>
+                    ✓
+                  </TableCell>
+                  <TableCell sx={{ ...colSx, textAlign: 'right' }}>{row.daysOut}</TableCell>
+                  <TableCell sx={{ ...colSx, textAlign: 'right' }}>{row.capacityPct}%</TableCell>
+                  <TableCell sx={{ ...colSx, textAlign: 'right', fontWeight: 600, color: capacity === 0 ? 'text.disabled' : 'text.primary' }}>
+                    {capacity}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+            <TableRow sx={{ borderTop: '2px solid', borderColor: 'grey.300' }}>
+              <TableCell sx={{ ...colSx, fontWeight: 700 }} colSpan={4}>Total</TableCell>
+              <TableCell sx={{ ...colSx, textAlign: 'right', fontWeight: 700 }}>{totalCapacity}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </Paper>
+  );
+};
+
 const SprintCheckLineChart = ({
   data,
   selectedEngineers,
@@ -160,6 +231,10 @@ const SprintCheckLineChart = ({
   highlightedSprintId,
   onEngineerHighlight,
   onDataPointClick,
+  capacityRows,
+  capacitySupportPct = 10,
+  selectedCapacitySprintId,
+  onCapacitySprintChange,
 }: SprintCheckLineChartProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(800);
@@ -381,20 +456,34 @@ const SprintCheckLineChart = ({
                   {/* Data point circles */}
                   {activePoints.map((p, idx) => {
                     const isPointHighlighted = isHighlighted && highlightedSprintId === p.sprintId;
+                    const radius = isPointHighlighted ? POINT_RADIUS_HIGHLIGHTED : (isHighlighted ? POINT_RADIUS + 1 : POINT_RADIUS);
                     return (
-                      <circle
-                        key={idx}
-                        cx={p.x}
-                        cy={p.y}
-                        r={isPointHighlighted ? POINT_RADIUS_HIGHLIGHTED : (isHighlighted ? POINT_RADIUS + 1 : POINT_RADIUS)}
-                        fill={isPointHighlighted ? '#fff' : color}
-                        stroke={isPointHighlighted ? color : 'white'}
-                        strokeWidth={isPointHighlighted ? 3 : 1.5}
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => onDataPointClick(engineer, p.sprintId)}
-                      >
-                        <title>{`${engineer}: ${p.pts} pts (${p.sprintName})`}</title>
-                      </circle>
+                      <g key={idx}>
+                        <circle
+                          cx={p.x}
+                          cy={p.y}
+                          r={radius}
+                          fill={isPointHighlighted ? '#fff' : color}
+                          stroke={isPointHighlighted ? color : 'white'}
+                          strokeWidth={isPointHighlighted ? 3 : 1.5}
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => onDataPointClick(engineer, p.sprintId)}
+                        >
+                          <title>{`${engineer}: ${p.pts} pts (${p.sprintName})`}</title>
+                        </circle>
+                        <text
+                          x={p.x}
+                          y={p.y - (radius + 6)}
+                          textAnchor="middle"
+                          dominantBaseline="auto"
+                          fontSize={10}
+                          fill={color}
+                          fontWeight="600"
+                          pointerEvents="none"
+                        >
+                          {p.pts}
+                        </text>
+                      </g>
                     );
                   })}
                 </g>
@@ -462,13 +551,32 @@ const SprintCheckLineChart = ({
         </svg>
       </Paper>
 
-      {/* Detail grid: always visible, shows items when engineer is clicked */}
-      <TicketDetailGrid
-        tickets={data.tickets}
-        sprints={data.sprints}
-        highlightedEngineer={highlightedEngineer}
-        highlightedSprintId={highlightedSprintId}
-      />
+      {/* Right panel: sprint picker + capacity grid + ticket detail grid */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: CHART_HEIGHT + 60, minWidth: 380, maxWidth: 520, overflow: 'hidden' }}>
+        {onCapacitySprintChange && data.sprints.length > 0 && (
+          <TextField
+            select
+            size="small"
+            label="Capacity Sprint"
+            value={selectedCapacitySprintId ?? ''}
+            onChange={(e) => onCapacitySprintChange(Number(e.target.value))}
+            sx={{ width: '100%' }}
+          >
+            {data.sprints.map((s) => (
+              <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>
+            ))}
+          </TextField>
+        )}
+        {capacityRows && capacityRows.length > 0 && (
+          <ReadOnlyCapacityGrid rows={capacityRows} supportPct={capacitySupportPct} />
+        )}
+        <TicketDetailGrid
+          tickets={data.tickets}
+          sprints={data.sprints}
+          highlightedEngineer={highlightedEngineer}
+          highlightedSprintId={highlightedSprintId}
+        />
+      </Box>
     </Box>
   );
 };
