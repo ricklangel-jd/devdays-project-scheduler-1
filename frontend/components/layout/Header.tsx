@@ -77,6 +77,7 @@ const NAV_MENUS = [
       { label: 'Sprint Metrics', path: '/sprint-metrics' },
       { label: 'PI Status', path: '/pi-status' },
       { label: 'Pointing Accuracy', path: '/pointing-accuracy' },
+      { label: 'Epics Checks', path: '/epics-checks' },
     ],
   },
   {

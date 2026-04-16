@@ -64,10 +64,13 @@ const SprintCheckContent = () => {
   // Stable key for change detection
   const sprintIdsKey = computedSprintIds.join(',');
 
-  // Engineer capacity data — driven by selectedCapacitySprintId
+  // Engineer capacity data — driven by selectedCapacitySprintId (for the grid display)
   const [capacityRows, setCapacityRows] = useState<EngineerRow[]>([]);
   const [capacitySupportPct, setCapacitySupportPct] = useState(10);
   const [selectedCapacitySprintId, setSelectedCapacitySprintId] = useState<number | null>(null);
+
+  // Capacity for all loaded sprints — used by the % of capacity chart
+  const [allSprintCapacity, setAllSprintCapacity] = useState<Map<number, { rows: EngineerRow[]; supportPct: number }>>(new Map());
 
   // Default to current sprint when data first loads (or reloads)
   useEffect(() => {
@@ -111,6 +114,42 @@ const SprintCheckContent = () => {
       .catch(() => { if (!cancelled) setCapacityRows([]); });
     return () => { cancelled = true; };
   }, [selectedCapacitySprintId, projectKey, data?.sprints]);
+
+  // Fetch capacity for every loaded sprint in parallel (used by % of capacity chart)
+  useEffect(() => {
+    if (!data?.sprints || !projectKey) {
+      setAllSprintCapacity(new Map());
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      data.sprints.map((sprint) => {
+        const params = new URLSearchParams({
+          projectKey,
+          sprintId: sprint.id.toString(),
+          sprintName: sprint.name,
+        });
+        return fetch(`/api/capacity/storage?${params}`)
+          .then((res) => res.json())
+          .then((json) => {
+            if (json.data) {
+              const parsed = deserializeCapacity(json.data);
+              if (parsed) return { sprintId: sprint.id, rows: parsed.rows, supportPct: parsed.supportPct };
+            }
+            return null;
+          })
+          .catch(() => null);
+      })
+    ).then((results) => {
+      if (cancelled) return;
+      const map = new Map<number, { rows: EngineerRow[]; supportPct: number }>();
+      for (const r of results) {
+        if (r) map.set(r.sprintId, { rows: r.rows, supportPct: r.supportPct });
+      }
+      setAllSprintCapacity(map);
+    });
+    return () => { cancelled = true; };
+  }, [data?.sprints, projectKey]);
 
   // Engineer filter state (local, not URL)
   const [selectedEngineers, setSelectedEngineers] = useState<Set<string>>(new Set());
@@ -302,6 +341,7 @@ const SprintCheckContent = () => {
                 capacitySupportPct={capacitySupportPct}
                 selectedCapacitySprintId={selectedCapacitySprintId}
                 onCapacitySprintChange={handleCapacitySprintChange}
+                allSprintCapacity={allSprintCapacity}
               />
               <SupportTicketPanel tickets={data.supportTickets ?? []} />
             </Box>

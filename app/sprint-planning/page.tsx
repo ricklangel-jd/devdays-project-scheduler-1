@@ -25,7 +25,7 @@ import SprintPlanningSidebarContent from '@/frontend/components/sidebar/SprintPl
 import { useAppState } from '@/frontend/hooks';
 import { useSprintPlanningData } from '@/frontend/hooks/useSprintPlanningData';
 import type { ParentGroup, StoryRow, ReadinessLabel } from '@/frontend/hooks/useSprintPlanningData';
-import { QUERY_PARAM_KEYS } from '@/shared/types';
+import { QUERY_PARAM_KEYS, type JiraSprint } from '@/shared/types';
 import { EPIC_COLORS } from '@/shared/constants';
 import {
   deserializeCapacity,
@@ -649,7 +649,7 @@ const PlanningTable = ({ parents, highlightedKey, onRowClick }: PlanningTablePro
 
 // ── Story readiness table ─────────────────────────────────────────────
 
-type StorySortField = 'key' | 'summary' | 'points' | 'status' | 'readiness';
+type StorySortField = 'key' | 'summary' | 'parentSummary' | 'points' | 'status' | 'readiness';
 
 const READINESS_CHIP_PROPS: Record<ReadinessLabel, { label: string; color: 'success' | 'warning' }> = {
   'Ready-For-Sprint': { label: 'Ready', color: 'success' },
@@ -687,6 +687,7 @@ const StoryTable = ({ stories, highlightedReadiness, highlightedStoryKey, highli
       let cmp = 0;
       if (sortField === 'key') cmp = a.key.localeCompare(b.key);
       else if (sortField === 'summary') cmp = a.summary.localeCompare(b.summary);
+      else if (sortField === 'parentSummary') cmp = a.parentSummary.localeCompare(b.parentSummary);
       else if (sortField === 'points') cmp = a.points - b.points;
       else if (sortField === 'status') cmp = a.status.localeCompare(b.status);
       else cmp = READINESS_SORT_ORDER[a.readiness] - READINESS_SORT_ORDER[b.readiness];
@@ -710,6 +711,11 @@ const StoryTable = ({ stories, highlightedReadiness, highlightedStoryKey, highli
             <TableCell sx={headerSx}>
               <TableSortLabel active={sortField === 'summary'} direction={sortField === 'summary' ? sortDir : 'asc'} onClick={() => handleSort('summary')}>
                 Summary
+              </TableSortLabel>
+            </TableCell>
+            <TableCell sx={headerSx}>
+              <TableSortLabel active={sortField === 'parentSummary'} direction={sortField === 'parentSummary' ? sortDir : 'asc'} onClick={() => handleSort('parentSummary')}>
+                Parent
               </TableSortLabel>
             </TableCell>
             <TableCell sx={{ ...headerSx, textAlign: 'right' }}>
@@ -773,6 +779,9 @@ const StoryTable = ({ stories, highlightedReadiness, highlightedStoryKey, highli
                 <TableCell sx={{ ...colSx, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: textColor }}>
                   {story.summary}
                 </TableCell>
+                <TableCell sx={{ ...colSx, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: textColor }}>
+                  {story.parentSummary}
+                </TableCell>
                 <TableCell sx={{ ...colSx, textAlign: 'right', color: textColor }}>{story.points || '—'}</TableCell>
                 <TableCell sx={{ ...colSx, color: textColor }}>{story.status}</TableCell>
                 <TableCell sx={colSx}>
@@ -781,6 +790,106 @@ const StoryTable = ({ stories, highlightedReadiness, highlightedStoryKey, highli
               </TableRow>
             );
           })}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+};
+
+// ── Carry-over items from previous sprint ────────────────────────────
+
+type CarryOverSortField = 'key' | 'summary' | 'points' | 'status';
+
+interface CarryOverTableProps {
+  items: StoryRow[];
+}
+
+const CarryOverTable = ({ items }: CarryOverTableProps) => {
+  const [sortField, setSortField] = useState<CarryOverSortField>('key');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  const handleSort = (field: CarryOverSortField) => {
+    if (field === sortField) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  };
+
+  const sorted = useMemo(() => {
+    return [...items].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'key') cmp = a.key.localeCompare(b.key);
+      else if (sortField === 'summary') cmp = a.summary.localeCompare(b.summary);
+      else if (sortField === 'points') cmp = a.points - b.points;
+      else cmp = a.status.localeCompare(b.status);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [items, sortField, sortDir]);
+
+  const colSx = { fontSize: '0.78rem', py: 0.5, px: 1 };
+  const headerSx = { ...colSx, fontWeight: 700, bgcolor: 'grey.100', whiteSpace: 'nowrap' as const };
+
+  return (
+    <TableContainer component={Paper} elevation={1} sx={{ maxHeight: 320, overflow: 'auto' }}>
+      <Table size="small" stickyHeader>
+        <TableHead>
+          <TableRow>
+            <TableCell sx={headerSx}>
+              <TableSortLabel active={sortField === 'key'} direction={sortField === 'key' ? sortDir : 'asc'} onClick={() => handleSort('key')}>
+                Key
+              </TableSortLabel>
+            </TableCell>
+            <TableCell sx={headerSx}>
+              <TableSortLabel active={sortField === 'summary'} direction={sortField === 'summary' ? sortDir : 'asc'} onClick={() => handleSort('summary')}>
+                Summary
+              </TableSortLabel>
+            </TableCell>
+            <TableCell sx={{ ...headerSx, textAlign: 'right' }}>
+              <TableSortLabel active={sortField === 'points'} direction={sortField === 'points' ? sortDir : 'asc'} onClick={() => handleSort('points')}>
+                Points
+              </TableSortLabel>
+            </TableCell>
+            <TableCell sx={headerSx}>
+              <TableSortLabel active={sortField === 'status'} direction={sortField === 'status' ? sortDir : 'asc'} onClick={() => handleSort('status')}>
+                Status
+              </TableSortLabel>
+            </TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {sorted.map((item) => (
+            <TableRow key={item.key} hover sx={{ '&:nth-of-type(even)': { bgcolor: 'grey.50' } }}>
+              <TableCell sx={{ ...colSx, whiteSpace: 'nowrap' }}>
+                {JIRA_BASE_URL ? (
+                  <Link
+                    href={`${JIRA_BASE_URL}/browse/${item.key}`}
+                    target="_blank"
+                    rel="noopener"
+                    underline="hover"
+                    sx={{ fontSize: 'inherit', fontWeight: 500 }}
+                  >
+                    {item.key}
+                  </Link>
+                ) : (
+                  item.key
+                )}
+              </TableCell>
+              <TableCell sx={{ ...colSx, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {item.summary}
+              </TableCell>
+              <TableCell sx={{ ...colSx, textAlign: 'right' }}>{item.points || '—'}</TableCell>
+              <TableCell sx={colSx}>{item.status}</TableCell>
+            </TableRow>
+          ))}
+          {sorted.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={4} sx={{ textAlign: 'center', py: 3, color: 'text.secondary', fontSize: 12 }}>
+                No incomplete items
+              </TableCell>
+            </TableRow>
+          )}
         </TableBody>
       </Table>
     </TableContainer>
@@ -814,6 +923,13 @@ const SprintPlanningContent = () => {
   // Capacity data for the selected sprint (saved by Capacity page)
   const [savedCapacity, setSavedCapacity] = useState<CapacityPayload | null>(null);
 
+  // All sprints for the board — used to identify the previous sprint
+  const [boardSprints, setBoardSprints] = useState<JiraSprint[]>([]);
+
+  // Carry-over: incomplete items from the sprint before the selected one
+  const [carryOverItems, setCarryOverItems] = useState<StoryRow[]>([]);
+  const [carryOverLoading, setCarryOverLoading] = useState(false);
+
   // Epic breakdown highlight
   const [highlightedKey, setHighlightedKey] = useState<string | null>(null);
 
@@ -830,6 +946,18 @@ const SprintPlanningContent = () => {
     setHighlightedKey(null);
     setHighlightedReadiness(null);
     setHighlightedStoryKey(null);
+    setCarryOverItems([]);
+  }, [boardId]);
+
+  // Fetch sprint list for the board so we can identify the previous sprint
+  useEffect(() => {
+    if (!boardId) { setBoardSprints([]); return; }
+    let cancelled = false;
+    fetch(`/api/sprints?boardId=${boardId}`)
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setBoardSprints(d.sprints ?? []); })
+      .catch(() => { if (!cancelled) setBoardSprints([]); });
+    return () => { cancelled = true; };
   }, [boardId]);
 
   // URL update helper
@@ -889,6 +1017,42 @@ const SprintPlanningContent = () => {
     };
     checkConnection();
   }, []);
+
+  // Previous sprint (the one immediately before the selected sprint by start date)
+  const prevSprint = useMemo(() => {
+    if (!selectedSprintId || boardSprints.length === 0) return null;
+    const sorted = [...boardSprints]
+      .filter((s) => s.startDate)
+      .sort((a, b) => a.startDate.localeCompare(b.startDate));
+    const idx = sorted.findIndex((s) => s.id === selectedSprintId);
+    if (idx <= 0) return null;
+    return sorted[idx - 1];
+  }, [selectedSprintId, boardSprints]);
+
+  // Fetch carry-over (incomplete) items from the previous sprint
+  useEffect(() => {
+    if (!prevSprint || !boardId) { setCarryOverItems([]); return; }
+    let cancelled = false;
+    setCarryOverLoading(true);
+    fetch('/api/sprint-planning/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sprintId: prevSprint.id, boardId }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        const allStories: StoryRow[] = d.stories ?? [];
+        const incomplete = allStories.filter((s) => {
+          const st = s.status.toLowerCase();
+          return st !== 'resolved' && st !== 'done' && st !== 'closed';
+        });
+        setCarryOverItems(incomplete);
+      })
+      .catch(() => { if (!cancelled) setCarryOverItems([]); })
+      .finally(() => { if (!cancelled) setCarryOverLoading(false); });
+    return () => { cancelled = true; };
+  }, [prevSprint, boardId]);
 
   const handleRefresh = useCallback(() => {
     if (!selectedSprintId || !boardId || isLoading) return;
@@ -1013,6 +1177,32 @@ const SprintPlanningContent = () => {
                   );
                 })()}
               </Box>
+
+              <Divider sx={{ mb: 3 }} />
+
+              {/* ── Carry-over from previous sprint ── */}
+              {prevSprint && (
+                <Box sx={{ mb: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, mb: 1.5 }}>
+                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                      Carry-over from {prevSprint.name}
+                    </Typography>
+                    {carryOverLoading ? (
+                      <CircularProgress size={16} />
+                    ) : (
+                      <>
+                        <Typography component="span" variant="body2" color="text.secondary">
+                          {carryOverItems.length} item{carryOverItems.length !== 1 ? 's' : ''}
+                        </Typography>
+                        <Typography component="span" variant="body2" color="warning.main" sx={{ fontWeight: 600 }}>
+                          {carryOverItems.reduce((s, i) => s + i.points, 0)} pts not completed
+                        </Typography>
+                      </>
+                    )}
+                  </Box>
+                  {!carryOverLoading && <CarryOverTable items={carryOverItems} />}
+                </Box>
+              )}
 
               <Divider sx={{ mb: 3 }} />
 

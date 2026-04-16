@@ -34,6 +34,7 @@ export interface StoryRow {
   status: string;
   readiness: ReadinessLabel;
   parentKey: string;
+  parentSummary: string;
 }
 
 export interface SprintPlanningResponse {
@@ -168,6 +169,7 @@ export const POST = async (request: NextRequest) => {
         status: issue.fields.status.name,
         readiness,
         parentKey,
+        parentSummary,
       });
     }
 

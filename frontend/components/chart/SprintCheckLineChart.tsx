@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState, useEffect } from 'react';
+import { useMemo, useRef, useState, useEffect, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -30,6 +30,7 @@ interface SprintCheckLineChartProps {
   capacitySupportPct?: number;
   selectedCapacitySprintId?: number | null;
   onCapacitySprintChange?: (sprintId: number) => void;
+  allSprintCapacity?: Map<number, { rows: EngineerRow[]; supportPct: number }>;
 }
 
 // Chart layout constants
@@ -39,6 +40,21 @@ const MARGIN = { top: 20, right: LEGEND_WIDTH + 20, bottom: 80, left: 65 };
 const POINT_RADIUS = 4;
 const POINT_RADIUS_HIGHLIGHTED = 6;
 const LEGEND_ROW_HEIGHT = 20;
+
+/** Linear regression over {x,y} points; returns null if fewer than 2 points or no variance in x */
+const linearRegression = (points: { x: number; y: number }[]): { slope: number; intercept: number } | null => {
+  const n = points.length;
+  if (n < 2) return null;
+  const sumX = points.reduce((s, p) => s + p.x, 0);
+  const sumY = points.reduce((s, p) => s + p.y, 0);
+  const sumXY = points.reduce((s, p) => s + p.x * p.y, 0);
+  const sumXX = points.reduce((s, p) => s + p.x * p.x, 0);
+  const denom = n * sumXX - sumX * sumX;
+  if (denom === 0) return null;
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+  return { slope, intercept };
+};
 
 /**
  * Build a stable color map: engineer name → color index
@@ -141,7 +157,7 @@ const TicketDetailGrid = ({
                   {ticket.summary}
                 </TableCell>
                 <TableCell align="right" sx={{ py: 0.25, fontSize: 11 }}>{ticket.storyPoints}</TableCell>
-                <TableCell sx={{ py: 0.25, fontSize: 11, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <TableCell sx={{ py: 0.25, fontSize: 11 }}>
                   {ticket.sprintName}
                 </TableCell>
               </TableRow>
@@ -173,7 +189,7 @@ const ReadOnlyCapacityGrid = ({
   const headerSx = { ...colSx, fontWeight: 700, bgcolor: 'grey.100', whiteSpace: 'nowrap' as const };
 
   return (
-    <Paper sx={{ p: 1, flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }} elevation={1}>
+    <Paper sx={{ p: 1, maxHeight: 280, overflow: 'hidden', display: 'flex', flexDirection: 'column' }} elevation={1}>
       <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 0.5 }}>
         <Typography variant="subtitle2" sx={{ fontSize: 13 }}>
           Engineer Capacity
@@ -224,75 +240,76 @@ const ReadOnlyCapacityGrid = ({
   );
 };
 
-const SprintCheckLineChart = ({
-  data,
-  selectedEngineers,
+// ── Reusable inner chart component ────────────────────────────────────────────
+
+interface EngineerLineChartProps {
+  title: string;
+  subtitleNode?: ReactNode;
+  sprints: { id: number; name: string }[];
+  /** engineer name → sprint id → value to plot */
+  engineerDataMap: Map<string, Map<number, number>>;
+  visibleEngineers: string[];
+  engineerColorMap: Map<string, number>;
+  highlightedEngineer: string | null;
+  highlightedSprintId: number | null;
+  onEngineerHighlight: (engineer: string) => void;
+  onDataPointClick: (engineer: string, sprintId: number) => void;
+  yAxisLabel?: string;
+  yTickFormatter?: (v: number) => string;
+  /** Draws a horizontal reference line at the given value */
+  referenceLine?: { value: number; color?: string };
+}
+
+const EngineerLineChart = ({
+  title,
+  subtitleNode,
+  sprints,
+  engineerDataMap,
+  visibleEngineers,
+  engineerColorMap,
   highlightedEngineer,
   highlightedSprintId,
   onEngineerHighlight,
   onDataPointClick,
-  capacityRows,
-  capacitySupportPct = 10,
-  selectedCapacitySprintId,
-  onCapacitySprintChange,
-}: SprintCheckLineChartProps) => {
+  yAxisLabel = 'Value',
+  yTickFormatter = String,
+  referenceLine,
+}: EngineerLineChartProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(800);
 
-  // Responsive width tracking
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
-      if (entry) {
-        setContainerWidth(entry.contentRect.width);
-      }
+      if (entry) setContainerWidth(entry.contentRect.width);
     });
-
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
-  const engineerColorMap = useMemo(() => buildEngineerColorMap(data.engineers), [data.engineers]);
-
-  // Build per-engineer per-sprint lookup: engineer → sprintId → totalPoints
-  const engineerSprintMap = useMemo(() => {
-    const map = new Map<string, Map<number, number>>();
-    for (const entry of data.sprintData) {
-      if (!map.has(entry.engineer)) {
-        map.set(entry.engineer, new Map());
-      }
-      map.get(entry.engineer)!.set(entry.sprintId, entry.totalPoints);
-    }
-    return map;
-  }, [data.sprintData]);
-
-  // Max value across all visible engineers (exclude Unassigned)
   const maxValue = useMemo(() => {
     let max = 0;
-    for (const entry of data.sprintData) {
-      if (entry.engineer === 'Unassigned') continue;
-      if (selectedEngineers.has(entry.engineer) && entry.totalPoints > max) {
-        max = entry.totalPoints;
+    for (const engineer of visibleEngineers) {
+      const sprintMap = engineerDataMap.get(engineer);
+      if (!sprintMap) continue;
+      for (const v of sprintMap.values()) {
+        if (v > max) max = v;
       }
     }
     return max;
-  }, [data.sprintData, selectedEngineers]);
+  }, [engineerDataMap, visibleEngineers]);
 
-  // Chart dimensions
-  const svgWidth = containerWidth - 48; // account for Paper padding
+  const svgWidth = containerWidth - 48;
   const chartWidth = svgWidth - MARGIN.left - MARGIN.right;
   const chartHeight = CHART_HEIGHT - MARGIN.top - MARGIN.bottom;
-  const sprintCount = data.sprints.length;
-
-  // X-axis step: evenly space sprints
+  const sprintCount = sprints.length;
   const xStep = sprintCount > 1 ? chartWidth / (sprintCount - 1) : chartWidth / 2;
 
-  // Y-axis scale with nice ticks
   const yScale = useMemo(() => {
-    const niceMax = Math.max(10, Math.ceil(maxValue * 1.15 / 10) * 10);
+    const refVal = referenceLine?.value ?? 0;
+    const niceMax = Math.max(10, Math.ceil(Math.max(maxValue, refVal) * 1.15 / 10) * 10);
     const tickCount = 5;
     const tickStep = Math.ceil(niceMax / tickCount / 5) * 5;
     const ticks: number[] = [];
@@ -304,7 +321,253 @@ const SprintCheckLineChart = ({
       ticks,
       toY: (value: number) => chartHeight - (value / niceMax) * chartHeight,
     };
-  }, [maxValue, chartHeight]);
+  }, [maxValue, chartHeight, referenceLine]);
+
+  const legendHeight = visibleEngineers.length * LEGEND_ROW_HEIGHT + 10;
+  const svgHeight = Math.max(CHART_HEIGHT, MARGIN.top + legendHeight);
+
+  return (
+    <Paper
+      ref={containerRef}
+      sx={{ px: 3, py: 1.5, overflow: 'hidden', flex: 1, minWidth: 0 }}
+      elevation={1}
+    >
+      <Typography variant="h6" sx={{ mb: 0.25 }}>{title}</Typography>
+      {subtitleNode && <Box sx={{ mb: 0.5 }}>{subtitleNode}</Box>}
+
+      <svg
+        width={svgWidth}
+        height={svgHeight}
+        style={{ display: 'block', margin: '0 auto' }}
+      >
+        <g transform={`translate(${MARGIN.left}, ${MARGIN.top})`}>
+          {/* Y-axis gridlines and labels */}
+          {yScale.ticks.map((tick) => (
+            <g key={tick}>
+              <line
+                x1={0} y1={yScale.toY(tick)} x2={chartWidth} y2={yScale.toY(tick)}
+                stroke="#e0e0e0" strokeDasharray="4,4"
+              />
+              <text
+                x={-10} y={yScale.toY(tick)}
+                textAnchor="end" dominantBaseline="middle"
+                fontSize={11} fill="#666"
+              >
+                {yTickFormatter(tick)}
+              </text>
+            </g>
+          ))}
+
+          {/* Y-axis title */}
+          <text
+            transform={`translate(-50, ${chartHeight / 2}) rotate(-90)`}
+            textAnchor="middle" fontSize={12} fill="#666"
+          >
+            {yAxisLabel}
+          </text>
+
+          {/* Reference line (e.g. 100%) */}
+          {referenceLine && (
+            <g>
+              <line
+                x1={0} y1={yScale.toY(referenceLine.value)}
+                x2={chartWidth} y2={yScale.toY(referenceLine.value)}
+                stroke={referenceLine.color ?? '#f44336'}
+                strokeWidth={1.5}
+                strokeDasharray="8,4"
+              />
+              <text
+                x={chartWidth + 4} y={yScale.toY(referenceLine.value)}
+                dominantBaseline="middle" fontSize={10}
+                fill={referenceLine.color ?? '#f44336'}
+              >
+                {yTickFormatter(referenceLine.value)}
+              </text>
+            </g>
+          )}
+
+          {/* X-axis baseline */}
+          <line x1={0} y1={chartHeight} x2={chartWidth} y2={chartHeight} stroke="#bdbdbd" />
+
+          {/* X-axis labels (sprint names, rotated) */}
+          {sprints.map((sprint, idx) => {
+            const x = sprintCount > 1 ? idx * xStep : chartWidth / 2;
+            return (
+              <g key={sprint.id}>
+                <line x1={x} y1={chartHeight} x2={x} y2={chartHeight + 6} stroke="#bdbdbd" />
+                <text
+                  x={x} y={chartHeight + 14}
+                  textAnchor="end" dominantBaseline="hanging"
+                  fontSize={10} fill="#666"
+                  transform={`rotate(-45, ${x}, ${chartHeight + 14})`}
+                >
+                  {sprint.name}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Lines, trend lines, and data points per engineer */}
+          {visibleEngineers.map((engineer) => {
+            const colorIdx = engineerColorMap.get(engineer) ?? 0;
+            const color = EPIC_COLORS[colorIdx % EPIC_COLORS.length];
+            const sprintMap = engineerDataMap.get(engineer);
+            const isHighlighted = highlightedEngineer === engineer;
+            const isDimmed = highlightedEngineer !== null && !isHighlighted;
+
+            const points = sprints.map((sprint, idx) => {
+              const x = sprintCount > 1 ? idx * xStep : chartWidth / 2;
+              const val = sprintMap?.get(sprint.id) ?? 0;
+              const y = yScale.toY(val);
+              return { x, y, val, sprintName: sprint.name, sprintId: sprint.id };
+            });
+
+            const activePoints = points.filter((p) => p.val > 0);
+            const polylinePoints = activePoints.map((p) => `${p.x},${p.y}`).join(' ');
+
+            return (
+              <g
+                key={engineer}
+                opacity={isDimmed ? 0.15 : 1}
+                style={{ transition: 'opacity 0.2s ease' }}
+              >
+                {/* Line connecting data points */}
+                {activePoints.length > 1 && (
+                  <polyline
+                    points={polylinePoints}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={isHighlighted ? 3.5 : 2.5}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+                )}
+
+                {/* Trend line (linear regression) */}
+                {activePoints.length >= 2 && (() => {
+                  const reg = linearRegression(activePoints.map((p) => ({ x: p.x, y: p.y })));
+                  if (!reg) return null;
+                  const x1 = activePoints[0].x;
+                  const x2 = activePoints[activePoints.length - 1].x;
+                  const y1 = reg.slope * x1 + reg.intercept;
+                  const y2 = reg.slope * x2 + reg.intercept;
+                  return (
+                    <line
+                      x1={x1} y1={y1} x2={x2} y2={y2}
+                      stroke={color}
+                      strokeWidth={1.5}
+                      strokeDasharray="6,4"
+                      strokeOpacity={0.45}
+                      strokeLinecap="round"
+                      pointerEvents="none"
+                    />
+                  );
+                })()}
+
+                {/* Data point circles */}
+                {activePoints.map((p, idx) => {
+                  const isPointHighlighted = isHighlighted && highlightedSprintId === p.sprintId;
+                  const radius = isPointHighlighted ? POINT_RADIUS_HIGHLIGHTED : (isHighlighted ? POINT_RADIUS + 1 : POINT_RADIUS);
+                  return (
+                    <g key={idx}>
+                      <circle
+                        cx={p.x}
+                        cy={p.y}
+                        r={radius}
+                        fill={isPointHighlighted ? '#fff' : color}
+                        stroke={isPointHighlighted ? color : 'white'}
+                        strokeWidth={isPointHighlighted ? 3 : 1.5}
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => onDataPointClick(engineer, p.sprintId)}
+                      >
+                        <title>{`${engineer}: ${yTickFormatter(p.val)} (${p.sprintName})`}</title>
+                      </circle>
+                      <text
+                        x={p.x}
+                        y={p.y - (radius + 6)}
+                        textAnchor="middle"
+                        dominantBaseline="auto"
+                        fontSize={10}
+                        fill={color}
+                        fontWeight="600"
+                        pointerEvents="none"
+                      >
+                        {yTickFormatter(p.val)}
+                      </text>
+                    </g>
+                  );
+                })}
+              </g>
+            );
+          })}
+
+          {/* Right legend (clickable) */}
+          <g transform={`translate(${chartWidth + 20}, 0)`}>
+            <text x={0} y={0} fontSize={11} fontWeight="bold" fill="#333" dominantBaseline="hanging">
+              Engineers
+            </text>
+            {visibleEngineers.map((engineer, idx) => {
+              const colorIdx = engineerColorMap.get(engineer) ?? 0;
+              const color = EPIC_COLORS[colorIdx % EPIC_COLORS.length];
+              const y = 20 + idx * LEGEND_ROW_HEIGHT;
+              const displayName = engineer.length > 22 ? engineer.slice(0, 20) + '...' : engineer;
+              const isHighlighted = highlightedEngineer === engineer;
+              const isDimmed = highlightedEngineer !== null && !isHighlighted;
+
+              return (
+                <g
+                  key={engineer}
+                  transform={`translate(0, ${y})`}
+                  style={{ cursor: 'pointer' }}
+                  opacity={isDimmed ? 0.35 : 1}
+                  onClick={() => onEngineerHighlight(engineer)}
+                >
+                  <rect width={14} height={14} fill={color} rx={2} />
+                  <text
+                    x={18} y={11}
+                    fontSize={11} fill="#333"
+                    fontWeight={isHighlighted ? 'bold' : 'normal'}
+                    textDecoration={isHighlighted ? 'underline' : 'none'}
+                  >
+                    {displayName}
+                  </text>
+                  <rect width={LEGEND_WIDTH - 20} height={LEGEND_ROW_HEIGHT} fill="transparent" y={-3} />
+                </g>
+              );
+            })}
+          </g>
+        </g>
+      </svg>
+    </Paper>
+  );
+};
+
+// ── Main export ───────────────────────────────────────────────────────────────
+
+const SprintCheckLineChart = ({
+  data,
+  selectedEngineers,
+  highlightedEngineer,
+  highlightedSprintId,
+  onEngineerHighlight,
+  onDataPointClick,
+  capacityRows,
+  capacitySupportPct = 10,
+  selectedCapacitySprintId,
+  onCapacitySprintChange,
+  allSprintCapacity,
+}: SprintCheckLineChartProps) => {
+  const engineerColorMap = useMemo(() => buildEngineerColorMap(data.engineers), [data.engineers]);
+
+  // Build per-engineer per-sprint lookup: engineer → sprintId → totalPoints
+  const engineerSprintMap = useMemo(() => {
+    const map = new Map<string, Map<number, number>>();
+    for (const entry of data.sprintData) {
+      if (!map.has(entry.engineer)) map.set(entry.engineer, new Map());
+      map.get(entry.engineer)!.set(entry.sprintId, entry.totalPoints);
+    }
+    return map;
+  }, [data.sprintData]);
 
   // Visible engineers for legend (exclude Unassigned from the line chart)
   const visibleEngineers = useMemo(
@@ -312,247 +575,92 @@ const SprintCheckLineChart = ({
     [data.engineers, selectedEngineers]
   );
 
-  // Legend height for SVG sizing
-  const legendHeight = visibleEngineers.length * LEGEND_ROW_HEIGHT + 10;
-  const svgHeight = Math.max(CHART_HEIGHT, MARGIN.top + legendHeight);
+  // % of capacity: engineer → sprintId → pct (only when capacity data available)
+  const capacityPctMap = useMemo(() => {
+    if (!allSprintCapacity || allSprintCapacity.size === 0) return null;
+    const result = new Map<string, Map<number, number>>();
+    for (const engineer of visibleEngineers) {
+      const sprintMap = engineerSprintMap.get(engineer);
+      if (!sprintMap) continue;
+      const engMap = new Map<number, number>();
+      for (const sprint of data.sprints) {
+        const points = sprintMap.get(sprint.id) ?? 0;
+        if (points === 0) continue;
+        const capacityData = allSprintCapacity.get(sprint.id);
+        if (!capacityData) continue;
+        const row = capacityData.rows.find((r) => r.name === engineer);
+        if (!row) continue;
+        const capacity = computeEngineerCapacity(row);
+        if (capacity <= 0) continue;
+        engMap.set(sprint.id, Math.round((points / capacity) * 100));
+      }
+      if (engMap.size > 0) result.set(engineer, engMap);
+    }
+    return result.size > 0 ? result : null;
+  }, [allSprintCapacity, visibleEngineers, engineerSprintMap, data.sprints]);
+
+  const pointsSubtitle = (
+    <Typography variant="body2" color="text.secondary">
+      Total story points per engineer across selected sprints
+      {highlightedEngineer && (
+        <Typography component="span" variant="body2" color="primary" sx={{ ml: 1, fontWeight: 'bold' }}>
+          — Showing: {highlightedEngineer}
+        </Typography>
+      )}
+    </Typography>
+  );
+
+  const pctSubtitle = (
+    <Typography variant="body2" color="text.secondary">
+      Story points completed ÷ sprint capacity per engineer
+      {highlightedEngineer && (
+        <Typography component="span" variant="body2" color="primary" sx={{ ml: 1, fontWeight: 'bold' }}>
+          — Showing: {highlightedEngineer}
+        </Typography>
+      )}
+    </Typography>
+  );
 
   return (
     <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', m: 2 }}>
-      {/* Chart */}
-      <Paper
-        ref={containerRef}
-        sx={{ px: 3, py: 1.5, overflow: 'hidden', flex: 1, minWidth: 0 }}
-        elevation={1}
-      >
-        <Typography variant="h6" sx={{ mb: 0.25 }}>
-          Story Points by Engineer
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-          Total story points per engineer across selected sprints
-          {highlightedEngineer && (
-            <Typography component="span" variant="body2" color="primary" sx={{ ml: 1, fontWeight: 'bold' }}>
-              — Showing: {highlightedEngineer}
-            </Typography>
-          )}
-        </Typography>
+      {/* Left column: both charts stacked — they share the same flex width */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
+        <EngineerLineChart
+          title="Story Points by Engineer"
+          subtitleNode={pointsSubtitle}
+          sprints={data.sprints}
+          engineerDataMap={engineerSprintMap}
+          visibleEngineers={visibleEngineers}
+          engineerColorMap={engineerColorMap}
+          highlightedEngineer={highlightedEngineer}
+          highlightedSprintId={highlightedSprintId}
+          onEngineerHighlight={onEngineerHighlight}
+          onDataPointClick={onDataPointClick}
+          yAxisLabel="Story Points"
+        />
 
-        <svg
-          width={svgWidth}
-          height={svgHeight}
-          style={{ display: 'block', margin: '0 auto' }}
-        >
-          <g transform={`translate(${MARGIN.left}, ${MARGIN.top})`}>
-            {/* Y-axis gridlines and labels */}
-            {yScale.ticks.map((tick) => (
-              <g key={tick}>
-                <line
-                  x1={0}
-                  y1={yScale.toY(tick)}
-                  x2={chartWidth}
-                  y2={yScale.toY(tick)}
-                  stroke="#e0e0e0"
-                  strokeDasharray="4,4"
-                />
-                <text
-                  x={-10}
-                  y={yScale.toY(tick)}
-                  textAnchor="end"
-                  dominantBaseline="middle"
-                  fontSize={11}
-                  fill="#666"
-                >
-                  {tick}
-                </text>
-              </g>
-            ))}
+        {/* % of capacity chart — only when capacity data is available for at least one sprint */}
+        {capacityPctMap && (
+          <EngineerLineChart
+            title="% of Capacity by Engineer"
+            subtitleNode={pctSubtitle}
+            sprints={data.sprints}
+            engineerDataMap={capacityPctMap}
+            visibleEngineers={visibleEngineers}
+            engineerColorMap={engineerColorMap}
+            highlightedEngineer={highlightedEngineer}
+            highlightedSprintId={highlightedSprintId}
+            onEngineerHighlight={onEngineerHighlight}
+            onDataPointClick={onDataPointClick}
+            yAxisLabel="% of Capacity"
+            yTickFormatter={(v) => `${v}%`}
+            referenceLine={{ value: 100, color: '#2e7d32' }}
+          />
+        )}
+      </Box>
 
-            {/* Y-axis title */}
-            <text
-              transform={`translate(-50, ${chartHeight / 2}) rotate(-90)`}
-              textAnchor="middle"
-              fontSize={12}
-              fill="#666"
-            >
-              Story Points
-            </text>
-
-            {/* X-axis baseline */}
-            <line
-              x1={0}
-              y1={chartHeight}
-              x2={chartWidth}
-              y2={chartHeight}
-              stroke="#bdbdbd"
-            />
-
-            {/* X-axis labels (sprint names, rotated) */}
-            {data.sprints.map((sprint, idx) => {
-              const x = sprintCount > 1 ? idx * xStep : chartWidth / 2;
-              return (
-                <g key={sprint.id}>
-                  {/* Vertical tick */}
-                  <line
-                    x1={x}
-                    y1={chartHeight}
-                    x2={x}
-                    y2={chartHeight + 6}
-                    stroke="#bdbdbd"
-                  />
-                  <text
-                    x={x}
-                    y={chartHeight + 14}
-                    textAnchor="end"
-                    dominantBaseline="hanging"
-                    fontSize={10}
-                    fill="#666"
-                    transform={`rotate(-45, ${x}, ${chartHeight + 14})`}
-                  >
-                    {sprint.name}
-                  </text>
-                </g>
-              );
-            })}
-
-            {/* Lines and data points for each visible engineer */}
-            {visibleEngineers.map((engineer) => {
-              const colorIdx = engineerColorMap.get(engineer) ?? 0;
-              const color = EPIC_COLORS[colorIdx % EPIC_COLORS.length];
-              const sprintMap = engineerSprintMap.get(engineer);
-              const isHighlighted = highlightedEngineer === engineer;
-              const isDimmed = highlightedEngineer !== null && !isHighlighted;
-
-              // Build points array
-              const points = data.sprints.map((sprint, idx) => {
-                const x = sprintCount > 1 ? idx * xStep : chartWidth / 2;
-                const pts = sprintMap?.get(sprint.id) ?? 0;
-                const y = yScale.toY(pts);
-                return { x, y, pts, sprintName: sprint.name, sprintId: sprint.id };
-              });
-
-              // Filter to only sprints where engineer has data
-              const activePoints = points.filter((p) => p.pts > 0);
-
-              // Polyline string (only connect points that have data)
-              const polylinePoints = activePoints.map((p) => `${p.x},${p.y}`).join(' ');
-
-              return (
-                <g
-                  key={engineer}
-                  opacity={isDimmed ? 0.15 : 1}
-                  style={{ transition: 'opacity 0.2s ease' }}
-                >
-                  {/* Line connecting data points */}
-                  {activePoints.length > 1 && (
-                    <polyline
-                      points={polylinePoints}
-                      fill="none"
-                      stroke={color}
-                      strokeWidth={isHighlighted ? 3.5 : 2.5}
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                    />
-                  )}
-
-                  {/* Data point circles */}
-                  {activePoints.map((p, idx) => {
-                    const isPointHighlighted = isHighlighted && highlightedSprintId === p.sprintId;
-                    const radius = isPointHighlighted ? POINT_RADIUS_HIGHLIGHTED : (isHighlighted ? POINT_RADIUS + 1 : POINT_RADIUS);
-                    return (
-                      <g key={idx}>
-                        <circle
-                          cx={p.x}
-                          cy={p.y}
-                          r={radius}
-                          fill={isPointHighlighted ? '#fff' : color}
-                          stroke={isPointHighlighted ? color : 'white'}
-                          strokeWidth={isPointHighlighted ? 3 : 1.5}
-                          style={{ cursor: 'pointer' }}
-                          onClick={() => onDataPointClick(engineer, p.sprintId)}
-                        >
-                          <title>{`${engineer}: ${p.pts} pts (${p.sprintName})`}</title>
-                        </circle>
-                        <text
-                          x={p.x}
-                          y={p.y - (radius + 6)}
-                          textAnchor="middle"
-                          dominantBaseline="auto"
-                          fontSize={10}
-                          fill={color}
-                          fontWeight="600"
-                          pointerEvents="none"
-                        >
-                          {p.pts}
-                        </text>
-                      </g>
-                    );
-                  })}
-                </g>
-              );
-            })}
-
-            {/* Right legend (clickable) */}
-            <g transform={`translate(${chartWidth + 20}, 0)`}>
-              <text
-                x={0}
-                y={0}
-                fontSize={11}
-                fontWeight="bold"
-                fill="#333"
-                dominantBaseline="hanging"
-              >
-                Engineers
-              </text>
-              {visibleEngineers.map((engineer, idx) => {
-                const colorIdx = engineerColorMap.get(engineer) ?? 0;
-                const color = EPIC_COLORS[colorIdx % EPIC_COLORS.length];
-                const y = 20 + idx * LEGEND_ROW_HEIGHT;
-                const displayName = engineer.length > 22
-                  ? engineer.slice(0, 20) + '...'
-                  : engineer;
-                const isHighlighted = highlightedEngineer === engineer;
-                const isDimmed = highlightedEngineer !== null && !isHighlighted;
-
-                return (
-                  <g
-                    key={engineer}
-                    transform={`translate(0, ${y})`}
-                    style={{ cursor: 'pointer' }}
-                    opacity={isDimmed ? 0.35 : 1}
-                    onClick={() => onEngineerHighlight(engineer)}
-                  >
-                    <rect
-                      width={14}
-                      height={14}
-                      fill={color}
-                      rx={2}
-                    />
-                    <text
-                      x={18}
-                      y={11}
-                      fontSize={11}
-                      fill="#333"
-                      fontWeight={isHighlighted ? 'bold' : 'normal'}
-                      textDecoration={isHighlighted ? 'underline' : 'none'}
-                    >
-                      {displayName}
-                    </text>
-                    {/* Invisible wider hitbox for easier clicking */}
-                    <rect
-                      width={LEGEND_WIDTH - 20}
-                      height={LEGEND_ROW_HEIGHT}
-                      fill="transparent"
-                      y={-3}
-                    />
-                  </g>
-                );
-              })}
-            </g>
-          </g>
-        </svg>
-      </Paper>
-
-      {/* Right panel: sprint picker + capacity grid + ticket detail grid */}
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: CHART_HEIGHT + 60, minWidth: 380, maxWidth: 520, overflow: 'hidden' }}>
+      {/* Right panel: spans the full height of both charts */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 380, maxWidth: 520, alignSelf: 'stretch' }}>
         {onCapacitySprintChange && data.sprints.length > 0 && (
           <TextField
             select

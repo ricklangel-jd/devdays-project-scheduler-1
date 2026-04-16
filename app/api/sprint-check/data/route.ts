@@ -142,8 +142,6 @@ export const POST = async (request: NextRequest) => {
       client.searchAllIssues(sdJql, ['summary', 'status', fieldConfig.sprint]),
     ]);
 
-    console.log(`[Sprint Check] Fetched ${sprintDetails.length} sprints, ${ticketsResponse.issues.length} tickets`);
-
     // Map and sort sprints by startDate ascending
     const sprints = mapToSprints(sprintDetails)
       .filter((s) => s.startDate)
@@ -218,8 +216,6 @@ export const POST = async (request: NextRequest) => {
 
     if (activeSprints.length > 0) {
       const active = activeSprints[0];
-      console.log(`[Sprint Check] Active sprint: ${active.name} (${active.id})`);
-
       // Check if active sprint data is already in our aggregation
       const isInSelected = selectedSprintIdSet.has(active.id);
 
@@ -229,7 +225,6 @@ export const POST = async (request: NextRequest) => {
         currentEngineerMap = aggregation.get(active.id) ?? new Map();
       } else {
         // Fetch current sprint tickets separately
-        console.log(`[Sprint Check] Active sprint not in selection, fetching separately`);
         const currentTicketsResponse = await client.getSprintTickets([active.id]);
         currentEngineerMap = new Map();
 

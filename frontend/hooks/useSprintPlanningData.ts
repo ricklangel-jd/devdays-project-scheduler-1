@@ -18,6 +18,7 @@ export interface StoryRow {
   status: string;
   readiness: ReadinessLabel;
   parentKey: string;
+  parentSummary: string;
 }
 
 export interface SprintPlanningData {
