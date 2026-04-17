@@ -51,6 +51,7 @@ const EpicList = ({ epics, jiraBaseUrl }: EpicListProps) => {
             <TableCell sx={headerSx}>Epic</TableCell>
             <TableCell sx={headerSx}>Summary</TableCell>
             <TableCell sx={headerSx}>Initiative</TableCell>
+            <TableCell sx={headerSx}>Linked To</TableCell>
             <TableCell sx={headerSx}>Team</TableCell>
             <TableCell sx={headerSx}>Status</TableCell>
             <TableCell sx={{ ...headerSx, textAlign: 'right' }}>Total Points</TableCell>
@@ -72,6 +73,36 @@ const EpicList = ({ epics, jiraBaseUrl }: EpicListProps) => {
                 <TableCell sx={colSx}>{keyCell}</TableCell>
                 <TableCell sx={colSx}>{e.summary}</TableCell>
                 <TableCell sx={colSx}>{e.initiativeKey}</TableCell>
+                <TableCell sx={colSx}>
+                  {e.linkedVia && e.linkedVia.length > 0 ? (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                      {e.linkedVia.map((l) => {
+                        const label = `${l.epicKey} (${l.linkType})`;
+                        return jiraBaseUrl ? (
+                          <Link
+                            key={`${l.epicKey}-${l.linkType}`}
+                            href={`${jiraBaseUrl}/browse/${l.epicKey}`}
+                            target="_blank"
+                            rel="noopener"
+                            sx={{ fontSize: '0.8rem' }}
+                          >
+                            {label}
+                          </Link>
+                        ) : (
+                          <Typography
+                            key={`${l.epicKey}-${l.linkType}`}
+                            variant="caption"
+                            component="span"
+                          >
+                            {label}
+                          </Typography>
+                        );
+                      })}
+                    </Box>
+                  ) : (
+                    '—'
+                  )}
+                </TableCell>
                 <TableCell sx={colSx}>{e.team}</TableCell>
                 <TableCell sx={colSx}>{e.status}</TableCell>
                 <TableCell sx={{ ...colSx, textAlign: 'right' }}>{Math.round(e.totalPoints)}</TableCell>

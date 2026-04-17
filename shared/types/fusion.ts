@@ -12,6 +12,11 @@ export interface FusionStory {
   devDays: number;       // Dev Days custom field value; 0 when missing
 }
 
+export interface FusionEpicLink {
+  epicKey: string;  // the initiative-epic this one is linked to
+  linkType: string; // JIRA link type name, e.g. "Blocks", "Relates"
+}
+
 export interface FusionEpic {
   key: string;           // e.g., "OFE-123"
   summary: string;
@@ -21,6 +26,7 @@ export interface FusionEpic {
   totalPoints: number;   // sum of story devDays
   donePoints: number;    // sum of story devDays where statusCategory.key === 'done'
   stories: FusionStory[];
+  linkedVia?: FusionEpicLink[]; // set when this epic was pulled in via a JIRA link rather than being a direct child of an initiative
 }
 
 export interface FusionData {

@@ -45,4 +45,4 @@ export type { AppState, SprintDateOverride, PiSprintAssignment } from './app';
 export { DEFAULT_APP_STATE, QUERY_PARAM_KEYS } from './app';
 
 // Fusion types
-export type { FusionStory, FusionEpic, FusionData } from './fusion';
+export type { FusionStory, FusionEpic, FusionEpicLink, FusionData } from './fusion';

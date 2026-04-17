@@ -3,12 +3,44 @@ import { getJiraClient, mapToInitiatives } from '@/backend/jira';
 import type {
   FusionData,
   FusionEpic,
+  FusionEpicLink,
   FusionStory,
   JiraIssueResponse,
 } from '@/shared/types';
 
 const DONE_CATEGORY_KEY = 'done';
 const CANCELED_STATUS = 'Canceled';
+
+/**
+ * Scan initiative-epic issuelinks and collect every other issue they link to.
+ * The map key is the linked issue's key (which may or may not turn out to be
+ * an Epic — we filter that at the JQL level when we fetch). The value tracks
+ * which initiative-epic(s) pointed at it and the link type name for display.
+ * Keys already in `existingKeys` are skipped so we never re-include an epic
+ * that's already a direct child of one of our initiatives.
+ */
+const harvestLinkedEpicKeys = (
+  initiativeEpics: JiraIssueResponse[],
+  existingKeys: Set<string>
+): Map<string, FusionEpicLink[]> => {
+  const map = new Map<string, FusionEpicLink[]>();
+  for (const epic of initiativeEpics) {
+    const links = epic.fields.issuelinks ?? [];
+    for (const link of links) {
+      const other = link.outwardIssue ?? link.inwardIssue;
+      if (!other) continue;
+      if (existingKeys.has(other.key)) continue;
+      const entry: FusionEpicLink = {
+        epicKey: epic.key,
+        linkType: link.type.name,
+      };
+      const arr = map.get(other.key) ?? [];
+      arr.push(entry);
+      map.set(other.key, arr);
+    }
+  }
+  return map;
+};
 
 /**
  * Extract this issue's parent epic key, checking the Epic Link field first
@@ -87,9 +119,27 @@ export const GET = async (request: NextRequest) => {
     const initiatives = mapToInitiatives(initiativesRaw.issues);
 
     // 2. Epics (already filtered by status != Canceled)
-    const epicIssues = await client.getEpicsForInitiatives(
+    const initiativeEpics = await client.getEpicsForInitiatives(
       initiatives.map(i => i.key)
     );
+    const initiativeEpicKeySet = new Set(initiativeEpics.map(e => e.key));
+
+    // 2b. Expand via JIRA issue links: every other Epic an initiative-epic is
+    // linked to (non-Canceled) is pulled into the same dataset so the charts,
+    // grids, and rollups reflect that related work too.
+    const linkedMap = harvestLinkedEpicKeys(initiativeEpics, initiativeEpicKeySet);
+    let linkedEpics: JiraIssueResponse[] = [];
+    if (linkedMap.size > 0) {
+      const linkedKeyList = Array.from(linkedMap.keys())
+        .map(k => `"${k.replace(/["\\]/g, '')}"`)
+        .join(',');
+      const linkedResult = await client.searchAllIssues(
+        `key in (${linkedKeyList}) AND issuetype = Epic AND status != "${CANCELED_STATUS}" ORDER BY key ASC`
+      );
+      linkedEpics = linkedResult.issues;
+    }
+
+    const epicIssues = [...initiativeEpics, ...linkedEpics];
     const epicKeys = epicIssues.map(e => e.key);
 
     // 3. Stories under those epics
@@ -123,6 +173,7 @@ export const GET = async (request: NextRequest) => {
     const epics: FusionEpic[] = epicIssues.map((e) => {
       const parentKey = e.fields.parent?.key ?? '';
       const totals = totalsByEpic.get(e.key) ?? { total: 0, done: 0 };
+      const linkedVia = linkedMap.get(e.key);
       return {
         key: e.key,
         summary: e.fields.summary,
@@ -132,6 +183,7 @@ export const GET = async (request: NextRequest) => {
         totalPoints: totals.total,
         donePoints: totals.done,
         stories: storiesByEpic.get(e.key) ?? [],
+        ...(linkedVia ? { linkedVia } : {}),
       };
     });
 
