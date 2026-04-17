@@ -8,6 +8,8 @@ import type {
   JiraStatusResponse,
 } from '@/shared/types';
 
+export type { JiraIssueResponse } from '@/shared/types';
+
 export interface ChangelogItem {
   field: string;
   fieldtype: string;
@@ -279,6 +281,51 @@ export class JiraClient {
   searchEpics = async (query: string): Promise<JiraSearchResponse> => {
     const jql = `issuetype = Epic AND ${EXCLUDE_MAINFRAME} AND (key ~ "${query}" OR summary ~ "${query}") ORDER BY key ASC`;
     return this.searchIssues(jql);
+  };
+
+  /**
+   * Get a single initiative by key. Returns null if not found.
+   */
+  getInitiativeByKey = async (key: string): Promise<JiraIssueResponse | null> => {
+    const sanitized = key.replace(/["\\]/g, '');
+    const jql = `key = "${sanitized}" AND issuetype = Initiative`;
+    const response = await this.searchIssues(jql);
+    return response.issues[0] ?? null;
+  };
+
+  /**
+   * Search initiatives by label. Exact match on the label value.
+   */
+  searchInitiativesByLabel = async (label: string): Promise<JiraIssueResponse[]> => {
+    const sanitized = label.replace(/["\\]/g, '');
+    const jql = `issuetype = Initiative AND labels = "${sanitized}" ORDER BY key ASC`;
+    const response = await this.searchIssues(jql);
+    return response.issues;
+  };
+
+  /**
+   * Get all non-canceled child epics for the given initiative keys (one JQL).
+   */
+  getEpicsForInitiatives = async (initiativeKeys: string[]): Promise<JiraIssueResponse[]> => {
+    if (initiativeKeys.length === 0) return [];
+    const keyList = initiativeKeys.map(k => `"${k.replace(/["\\]/g, '')}"`).join(',');
+    const jql =
+      `parent in (${keyList}) AND issuetype = Epic AND status != "Canceled" ORDER BY key ASC`;
+    const response = await this.searchIssues(jql);
+    return response.issues;
+  };
+
+  /**
+   * Get all non-epic issues under the given epic keys (one JQL).
+   * Matches either team-managed (parent = epic) or company-managed ("Epic Link" = epic).
+   */
+  getStoriesForEpics = async (epicKeys: string[]): Promise<JiraIssueResponse[]> => {
+    if (epicKeys.length === 0) return [];
+    const keyList = epicKeys.map(k => `"${k.replace(/["\\]/g, '')}"`).join(',');
+    const jql =
+      `("Epic Link" in (${keyList}) OR parent in (${keyList})) AND issuetype != Epic ORDER BY key ASC`;
+    const response = await this.searchIssues(jql);
+    return response.issues;
   };
 
   /**
