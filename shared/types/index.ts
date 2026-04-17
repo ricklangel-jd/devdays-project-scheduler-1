@@ -42,3 +42,6 @@ export type {
 // App types
 export type { AppState, SprintDateOverride } from './app';
 export { DEFAULT_APP_STATE, QUERY_PARAM_KEYS } from './app';
+
+// Fusion types
+export type { FusionStory, FusionEpic, FusionData } from './fusion';
