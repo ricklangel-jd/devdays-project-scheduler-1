@@ -134,7 +134,8 @@ export const GET = async (request: NextRequest) => {
         .map(k => `"${k.replace(/["\\]/g, '')}"`)
         .join(',');
       const linkedResult = await client.searchAllIssues(
-        `key in (${linkedKeyList}) AND issuetype = Epic AND status != "${CANCELED_STATUS}" ORDER BY key ASC`
+        `key in (${linkedKeyList}) AND issuetype = Epic AND status != "${CANCELED_STATUS}" ORDER BY key ASC`,
+        ['updated']
       );
       linkedEpics = linkedResult.issues;
     }
@@ -174,6 +175,8 @@ export const GET = async (request: NextRequest) => {
       const parentKey = e.fields.parent?.key ?? '';
       const totals = totalsByEpic.get(e.key) ?? { total: 0, done: 0 };
       const linkedVia = linkedMap.get(e.key);
+      const rawUpdated = e.fields.updated;
+      const updatedAt = typeof rawUpdated === 'string' ? rawUpdated : null;
       return {
         key: e.key,
         summary: e.fields.summary,
@@ -183,6 +186,7 @@ export const GET = async (request: NextRequest) => {
         totalPoints: totals.total,
         donePoints: totals.done,
         stories: storiesByEpic.get(e.key) ?? [],
+        updatedAt,
         ...(linkedVia ? { linkedVia } : {}),
       };
     });

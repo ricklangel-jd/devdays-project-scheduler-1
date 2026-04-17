@@ -311,7 +311,7 @@ export class JiraClient {
     const keyList = initiativeKeys.map(k => `"${k.replace(/["\\]/g, '')}"`).join(',');
     const jql =
       `parent in (${keyList}) AND issuetype = Epic AND status != "Canceled" ORDER BY key ASC`;
-    const response = await this.searchAllIssues(jql);
+    const response = await this.searchAllIssues(jql, ['updated']);
     return response.issues;
   };
 

@@ -27,6 +27,7 @@ export interface FusionEpic {
   donePoints: number;    // sum of story devDays where statusCategory.key === 'done'
   stories: FusionStory[];
   linkedVia?: FusionEpicLink[]; // set when this epic was pulled in via a JIRA link rather than being a direct child of an initiative
+  updatedAt: string | null;     // ISO datetime of the JIRA "updated" field; null if missing
 }
 
 export interface FusionData {
