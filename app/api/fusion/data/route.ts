@@ -95,12 +95,13 @@ export const GET = async (request: NextRequest) => {
     const storyIssues = await client.getStoriesForEpics(epicKeys);
 
     // 4. Group stories by epic key, compute totals
+    const epicKeySet = new Set(epicKeys);
     const storiesByEpic = new Map<string, FusionStory[]>();
     const totalsByEpic = new Map<string, { total: number; done: number }>();
 
     for (const issue of storyIssues) {
       const epicKey = resolveEpicKey(issue, epicLinkField);
-      if (!epicKey || !epicKeys.includes(epicKey)) continue;
+      if (!epicKey || !epicKeySet.has(epicKey)) continue;
 
       const story = toStory(issue, epicKey, devDaysField);
 
