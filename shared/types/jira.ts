@@ -19,6 +19,13 @@ export interface JiraEpic {
   priorityOverride?: number; // From labels like "Commit-1", "Stretch-2" for manual ordering
 }
 
+export interface JiraInitiative {
+  key: string;         // e.g., "INIT-100"
+  summary: string;
+  status: string;      // e.g., "In Progress"
+  labels: string[];
+}
+
 export interface JiraTicket {
   key: string;           // e.g., "PROJ-456"
   summary: string;       // Ticket title
@@ -74,9 +81,7 @@ export interface JiraIssueResponse {
   key: string;
   fields: {
     summary: string;
-    status: {
-      name: string;
-    };
+    status: JiraIssueStatus;
     assignee?: {
       displayName: string;
       avatarUrls?: {
@@ -139,6 +144,14 @@ export interface JiraStatusCategory {
   id: number;
   key: string;  // 'new' | 'indeterminate' | 'done'
   name: string;
+}
+
+/**
+ * Issue status with optional category information
+ */
+export interface JiraIssueStatus {
+  name: string;
+  statusCategory?: JiraStatusCategory;
 }
 
 /**

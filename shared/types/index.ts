@@ -8,6 +8,8 @@ export type {
   JiraBoard,
   JiraIssueLink,
   JiraIssueResponse,
+  JiraIssueStatus,
+  JiraInitiative,
   JiraSprintResponse,
   JiraSearchResponse,
   JiraProjectResponse,
