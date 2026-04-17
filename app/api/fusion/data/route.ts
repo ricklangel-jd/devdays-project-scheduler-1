@@ -78,7 +78,7 @@ export const GET = async (request: NextRequest) => {
 
     // 1. Initiatives
     const keyList = initiativeKeys
-      .map(k => `"${k.replace(/"/g, '')}"`)
+      .map(k => `"${k.replace(/["\\]/g, '')}"`)
       .join(',');
     const initiativesRaw = await client.searchIssues(
       `key in (${keyList}) AND issuetype = Initiative ORDER BY key ASC`

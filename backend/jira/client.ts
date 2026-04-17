@@ -174,7 +174,7 @@ export class JiraClient {
    * Get a single initiative by key. Returns null if not found.
    */
   getInitiativeByKey = async (key: string): Promise<JiraIssueResponse | null> => {
-    const sanitized = key.replace(/"/g, '');
+    const sanitized = key.replace(/["\\]/g, '');
     const jql = `key = "${sanitized}" AND issuetype = Initiative`;
     const response = await this.searchIssues(jql);
     return response.issues[0] ?? null;
@@ -184,7 +184,7 @@ export class JiraClient {
    * Search initiatives by label. Exact match on the label value.
    */
   searchInitiativesByLabel = async (label: string): Promise<JiraIssueResponse[]> => {
-    const sanitized = label.replace(/"/g, '');
+    const sanitized = label.replace(/["\\]/g, '');
     const jql = `issuetype = Initiative AND labels = "${sanitized}" ORDER BY key ASC`;
     const response = await this.searchIssues(jql);
     return response.issues;
@@ -195,7 +195,7 @@ export class JiraClient {
    */
   getEpicsForInitiatives = async (initiativeKeys: string[]): Promise<JiraIssueResponse[]> => {
     if (initiativeKeys.length === 0) return [];
-    const keyList = initiativeKeys.map(k => `"${k.replace(/"/g, '')}"`).join(',');
+    const keyList = initiativeKeys.map(k => `"${k.replace(/["\\]/g, '')}"`).join(',');
     const jql =
       `parent in (${keyList}) AND issuetype = Epic AND status != "Canceled" ORDER BY key ASC`;
     const response = await this.searchIssues(jql);
@@ -208,7 +208,7 @@ export class JiraClient {
    */
   getStoriesForEpics = async (epicKeys: string[]): Promise<JiraIssueResponse[]> => {
     if (epicKeys.length === 0) return [];
-    const keyList = epicKeys.map(k => `"${k.replace(/"/g, '')}"`).join(',');
+    const keyList = epicKeys.map(k => `"${k.replace(/["\\]/g, '')}"`).join(',');
     const jql =
       `("Epic Link" in (${keyList}) OR parent in (${keyList})) AND issuetype != Epic ORDER BY key ASC`;
     const response = await this.searchIssues(jql);

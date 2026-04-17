@@ -125,15 +125,18 @@ const FusionStatusContent = () => {
   }, []);
 
   const displayedInitiatives = useMemo(() => {
-    // Show whatever the server returned; if load failed and `data` is null
-    // but keys exist, render placeholders so the user can still remove them.
-    if (data) return data.initiatives;
-    return initiativeKeys.map<JiraInitiative>(key => ({
+    // Always include every entered key as a chip. If the server returned a
+    // matching initiative, use its summary; if the key is unknown (or the
+    // load hasn't resolved yet), fall back to a placeholder so the user can
+    // still remove it.
+    const byKey = new Map<string, JiraInitiative>();
+    if (data) for (const init of data.initiatives) byKey.set(init.key, init);
+    return initiativeKeys.map<JiraInitiative>(key => byKey.get(key) ?? {
       key,
-      summary: '(loading…)',
+      summary: data ? '(not found)' : '(loading…)',
       status: '',
       labels: [],
-    }));
+    });
   }, [data, initiativeKeys]);
 
   const pieData = useMemo(() => rollupByStatus(data?.epics), [data?.epics]);
