@@ -77,7 +77,7 @@ const TeamStatusColumn = ({
           />
           {/* Max label */}
           <text x={LEFT_PAD - 6} y={TOP_PAD + 4} fontSize={10} fill="#666" textAnchor="end">
-            {maxTotal}
+            {Math.round(maxTotal)}
           </text>
           <text
             x={LEFT_PAD - 6}
@@ -120,7 +120,7 @@ const TeamStatusColumn = ({
                       style={{ cursor: 'pointer' }}
                       onClick={() => onSelectSegment(stack.team, seg.status)}
                     >
-                      <title>{`${stack.team} · ${seg.status}: ${seg.value}`}</title>
+                      <title>{`${stack.team} · ${seg.status}: ${Math.round(seg.value)}`}</title>
                     </rect>
                   );
                 })}
@@ -144,7 +144,7 @@ const TeamStatusColumn = ({
                   fontSize={10}
                   fill="#666"
                 >
-                  {stack.total}
+                  {Math.round(stack.total)}
                 </text>
               </g>
             );

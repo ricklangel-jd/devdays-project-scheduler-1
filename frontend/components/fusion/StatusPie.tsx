@@ -130,7 +130,7 @@ const StatusPie = ({ slices, selectedStatus, onSelect }: StatusPieProps) => {
           fontWeight="bold"
           fill="#333"
         >
-          {total}
+          {Math.round(total)}
         </text>
       </svg>
 
@@ -161,7 +161,7 @@ const StatusPie = ({ slices, selectedStatus, onSelect }: StatusPieProps) => {
               {s.status}
             </Typography>
             <Typography variant="caption" fontWeight={600} sx={{ ml: 'auto' }}>
-              {s.points}
+              {Math.round(s.points)}
             </Typography>
           </Box>
         ))}

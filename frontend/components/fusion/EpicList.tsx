@@ -74,7 +74,7 @@ const EpicList = ({ epics, jiraBaseUrl }: EpicListProps) => {
                 <TableCell sx={colSx}>{e.initiativeKey}</TableCell>
                 <TableCell sx={colSx}>{e.team}</TableCell>
                 <TableCell sx={colSx}>{e.status}</TableCell>
-                <TableCell sx={{ ...colSx, textAlign: 'right' }}>{e.totalPoints}</TableCell>
+                <TableCell sx={{ ...colSx, textAlign: 'right' }}>{Math.round(e.totalPoints)}</TableCell>
                 <TableCell sx={colSx}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                     <Box sx={{ flex: 1 }}>
