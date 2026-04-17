@@ -1,6 +1,7 @@
 import type {
   CommitType,
   JiraEpic,
+  JiraInitiative,
   JiraTicket,
   JiraSprint,
   JiraProject,
@@ -227,6 +228,22 @@ export const mapToBoard = (board: JiraBoardResponse): JiraBoard => ({
  */
 export const mapToBoards = (boards: JiraBoardResponse[]): JiraBoard[] =>
   boards.map(mapToBoard);
+
+/**
+ * Map a JIRA issue response to a JiraInitiative
+ */
+export const mapToInitiative = (issue: JiraIssueResponse): JiraInitiative => ({
+  key: issue.key,
+  summary: issue.fields.summary,
+  status: issue.fields.status.name,
+  labels: issue.fields.labels ?? [],
+});
+
+/**
+ * Map multiple initiative issues
+ */
+export const mapToInitiatives = (issues: JiraIssueResponse[]): JiraInitiative[] =>
+  issues.map(mapToInitiative);
 
 /**
  * Map a JIRA issue to an OtherTicket (not in selected epics)

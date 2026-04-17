@@ -11,5 +11,7 @@ export {
   mapToProjects,
   mapToBoards,
   mapToOtherTicket,
+  mapToInitiative,
+  mapToInitiatives,
 } from './mappers';
 export type { FieldConfig } from './mappers';
