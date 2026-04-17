@@ -81,7 +81,7 @@ export const GET = async (request: NextRequest) => {
     const keyList = initiativeKeys
       .map(k => `"${k.replace(/["\\]/g, '')}"`)
       .join(',');
-    const initiativesRaw = await client.searchIssues(
+    const initiativesRaw = await client.searchAllIssues(
       `key in (${keyList}) AND issuetype = Initiative ORDER BY key ASC`
     );
     const initiatives = mapToInitiatives(initiativesRaw.issues);
