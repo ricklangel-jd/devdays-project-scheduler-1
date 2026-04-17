@@ -8,6 +8,7 @@ import type {
 } from '@/shared/types';
 
 const DONE_CATEGORY_KEY = 'done';
+const CANCELED_STATUS = 'Canceled';
 
 /**
  * Extract this issue's parent epic key, checking the Epic Link field first
@@ -102,6 +103,7 @@ export const GET = async (request: NextRequest) => {
     for (const issue of storyIssues) {
       const epicKey = resolveEpicKey(issue, epicLinkField);
       if (!epicKey || !epicKeySet.has(epicKey)) continue;
+      if (issue.fields.status.name === CANCELED_STATUS) continue;
 
       const story = toStory(issue, epicKey, devDaysField);
 

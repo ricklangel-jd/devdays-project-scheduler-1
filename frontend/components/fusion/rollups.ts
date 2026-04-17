@@ -17,15 +17,16 @@ export interface TeamStack {
 }
 
 /**
- * Roll up total points grouped by epic status.
- * Epics with totalPoints of 0 are still counted under their status so zero
- * segments do not silently disappear from the filter controls.
+ * Roll up story points (devDays) grouped by story status. Canceled stories
+ * are already excluded upstream in the API.
  */
 export const rollupByStatus = (epics: FusionEpic[] | undefined): PieSlice[] => {
   if (!epics || epics.length === 0) return [];
   const bucket = new Map<string, number>();
   for (const epic of epics) {
-    bucket.set(epic.status, (bucket.get(epic.status) ?? 0) + epic.totalPoints);
+    for (const story of epic.stories) {
+      bucket.set(story.status, (bucket.get(story.status) ?? 0) + story.devDays);
+    }
   }
   return Array.from(bucket.entries())
     .map(([status, points]) => ({ status, points }))
@@ -33,7 +34,7 @@ export const rollupByStatus = (epics: FusionEpic[] | undefined): PieSlice[] => {
 };
 
 /**
- * Roll up total points grouped by team, stacked by status.
+ * Roll up story points grouped by team (epic's team), stacked by story status.
  */
 export const rollupByTeamAndStatus = (
   epics: FusionEpic[] | undefined
@@ -41,25 +42,26 @@ export const rollupByTeamAndStatus = (
   if (!epics || epics.length === 0) return [];
   const stacks = new Map<string, TeamStack>();
   for (const epic of epics) {
-    const stack = stacks.get(epic.team) ?? {
-      team: epic.team,
-      total: 0,
-      byStatus: {},
-    };
-    stack.total += epic.totalPoints;
-    stack.byStatus[epic.status] =
-      (stack.byStatus[epic.status] ?? 0) + epic.totalPoints;
-    stacks.set(epic.team, stack);
+    for (const story of epic.stories) {
+      const stack = stacks.get(epic.team) ?? {
+        team: epic.team,
+        total: 0,
+        byStatus: {},
+      };
+      stack.total += story.devDays;
+      stack.byStatus[story.status] =
+        (stack.byStatus[story.status] ?? 0) + story.devDays;
+      stacks.set(epic.team, stack);
+    }
   }
   return Array.from(stacks.values()).sort((a, b) => b.total - a.total);
 };
 
 /**
- * Apply the current chart filter to the epic list.
- * - filter = null: return all epics.
- * - filter.status set: keep epics whose status matches.
- * - filter.team set: keep epics whose team matches.
- * - both set: keep epics matching BOTH.
+ * Apply the current chart filter to the epic list. When `status` is set, we
+ * narrow each epic's `stories` array to the matching stories and drop epics
+ * that have no matches — so the stories grid naturally shows the filtered
+ * subset via `filteredEpics.flatMap(e => e.stories)`.
  */
 export const applyFilter = (
   epics: FusionEpic[] | undefined,
@@ -67,25 +69,17 @@ export const applyFilter = (
 ): FusionEpic[] => {
   if (!epics) return [];
   if (!filter) return epics;
-  return epics.filter(e => {
-    if (filter.status && e.status !== filter.status) return false;
-    if (filter.team && e.team !== filter.team) return false;
-    return true;
-  });
+  const result: FusionEpic[] = [];
+  for (const epic of epics) {
+    if (filter.team && epic.team !== filter.team) continue;
+    if (!filter.status) {
+      result.push(epic);
+      continue;
+    }
+    const matching = epic.stories.filter(s => s.status === filter.status);
+    if (matching.length === 0) continue;
+    result.push({ ...epic, stories: matching });
+  }
+  return result;
 };
 
-/* Sanity-check examples (uncomment to run in a scratch file):
- *
- * import type { FusionEpic } from '@/shared/types';
- * const epics: FusionEpic[] = [
- *   { key: 'A-1', summary: '', initiativeKey: 'I', team: 'A',
- *     status: 'In Progress', totalPoints: 10, donePoints: 3, stories: [] },
- *   { key: 'A-2', summary: '', initiativeKey: 'I', team: 'A',
- *     status: 'Backlog', totalPoints: 5, donePoints: 0, stories: [] },
- *   { key: 'B-1', summary: '', initiativeKey: 'I', team: 'B',
- *     status: 'In Progress', totalPoints: 7, donePoints: 0, stories: [] },
- * ];
- * console.assert(rollupByStatus(epics).find(s => s.status === 'In Progress')?.points === 17);
- * console.assert(rollupByTeamAndStatus(epics).find(t => t.team === 'A')?.total === 15);
- * console.assert(applyFilter(epics, { team: 'A', status: 'Backlog' }).length === 1);
- */
