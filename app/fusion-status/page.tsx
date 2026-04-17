@@ -217,7 +217,7 @@ const FusionStatusContent = () => {
               <Box sx={{ display: 'flex', gap: 2, flex: 1, minHeight: 400 }}>
                 <Box sx={{ flex: 3, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                   <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
-                    Epics{filter ? ' (filtered)' : ''}
+                    Epics ({filteredEpics.length}{filter ? ', filtered' : ''})
                   </Typography>
                   {filteredEpics.length === 0 ? (
                     <Alert severity="info">
@@ -229,7 +229,7 @@ const FusionStatusContent = () => {
                 </Box>
                 <Box sx={{ flex: 2, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                   <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
-                    Stories
+                    Stories ({filteredStories.length})
                   </Typography>
                   <StoriesGrid stories={filteredStories} jiraBaseUrl={jiraBaseUrl} />
                 </Box>
