@@ -64,17 +64,19 @@ const FusionStatusContent = () => {
     })();
   }, []);
 
-  // Keep URL param in sync with initiativeKeys
+  // Keep URL param in sync with initiativeKeys. Read current search via
+  // window.location to avoid re-running when `searchParams` identity changes
+  // after our own router.replace().
   useEffect(() => {
-    const current = searchParams.get('initiatives') ?? '';
+    const params = new URLSearchParams(window.location.search);
+    const current = params.get('initiatives') ?? '';
     const next = initiativeKeys.join(',');
     if (current === next) return;
-    const params = new URLSearchParams(searchParams.toString());
     if (next.length === 0) params.delete('initiatives');
     else params.set('initiatives', next);
     const qs = params.toString();
     router.replace(qs ? `?${qs}` : '?', { scroll: false });
-  }, [initiativeKeys, router, searchParams]);
+  }, [initiativeKeys, router]);
 
   // Fetch whenever initiativeKeys changes
   useEffect(() => {
@@ -85,13 +87,9 @@ const FusionStatusContent = () => {
     load(initiativeKeys);
   }, [initiativeKeys, load, clear]);
 
-  // Reset filter when data reloads from a different initiative set
-  useEffect(() => {
-    setFilter(null);
-  }, [initiativeKeys]);
-
   const addInitiative = useCallback((init: JiraInitiative) => {
     setInitiativeKeys(prev => (prev.includes(init.key) ? prev : [...prev, init.key]));
+    setFilter(null);
   }, []);
 
   const bulkAddInitiatives = useCallback((inits: JiraInitiative[]) => {
@@ -100,10 +98,12 @@ const FusionStatusContent = () => {
       const additions = inits.map(i => i.key).filter(k => !seen.has(k));
       return additions.length === 0 ? prev : [...prev, ...additions];
     });
+    setFilter(null);
   }, []);
 
   const removeInitiative = useCallback((key: string) => {
     setInitiativeKeys(prev => prev.filter(k => k !== key));
+    setFilter(null);
   }, []);
 
   const handlePieSelect = useCallback((status: string) => {
