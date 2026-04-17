@@ -87,7 +87,8 @@ const StatusPie = ({ slices, selectedStatus, onSelect }: StatusPieProps) => {
       <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5, textAlign: 'center' }}>
         Points by Status
       </Typography>
-      <svg width={260} height={260} style={{ display: 'block' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <svg width={260} height={260} style={{ display: 'block', flexShrink: 0 }}>
         {svgSlices.map((s) => {
           const dim = selectedStatus !== null && selectedStatus !== s.status;
           return (
@@ -132,39 +133,40 @@ const StatusPie = ({ slices, selectedStatus, onSelect }: StatusPieProps) => {
         >
           {Math.round(total)}
         </text>
-      </svg>
+        </svg>
 
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 0.5 }}>
-        {slices.map((s) => (
-          <Box
-            key={s.status}
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-              cursor: 'pointer',
-              opacity:
-                selectedStatus !== null && selectedStatus !== s.status ? 0.5 : 1,
-            }}
-            onClick={() => onSelect(s.status)}
-          >
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, minWidth: 140, flex: 1 }}>
+          {slices.map((s) => (
             <Box
+              key={s.status}
               sx={{
-                width: 12,
-                height: 12,
-                borderRadius: '2px',
-                bgcolor: colorForStatus(s.status),
-                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                cursor: 'pointer',
+                opacity:
+                  selectedStatus !== null && selectedStatus !== s.status ? 0.5 : 1,
               }}
-            />
-            <Typography variant="caption" color="text.secondary">
-              {s.status}
-            </Typography>
-            <Typography variant="caption" fontWeight={600} sx={{ ml: 'auto' }}>
-              {Math.round(s.points)}
-            </Typography>
-          </Box>
-        ))}
+              onClick={() => onSelect(s.status)}
+            >
+              <Box
+                sx={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: '2px',
+                  bgcolor: colorForStatus(s.status),
+                  flexShrink: 0,
+                }}
+              />
+              <Typography variant="caption" color="text.secondary">
+                {s.status}
+              </Typography>
+              <Typography variant="caption" fontWeight={600} sx={{ ml: 'auto' }}>
+                {Math.round(s.points)}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
       </Box>
     </Box>
   );

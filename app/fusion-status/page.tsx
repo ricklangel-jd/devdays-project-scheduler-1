@@ -193,14 +193,14 @@ const FusionStatusContent = () => {
                 </Alert>
               ) : (
                 <>
-                  <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, minWidth: 260 }}>
+                  <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, minWidth: 440 }}>
                     <StatusPie
                       slices={pieData}
                       selectedStatus={filter?.team ? null : filter?.status ?? null}
                       onSelect={handlePieSelect}
                     />
                   </Box>
-                  <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, flex: 1, minWidth: 380 }}>
+                  <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, flex: 1, minWidth: 320 }}>
                     <TeamStatusColumn
                       stacks={barData}
                       selected={filter}
@@ -215,7 +215,7 @@ const FusionStatusContent = () => {
             {/* Grids row */}
             {hasEpics && (
               <Box sx={{ display: 'flex', gap: 2, flex: 1, minHeight: 400 }}>
-                <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <Box sx={{ flex: 3, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                   <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
                     Epics{filter ? ' (filtered)' : ''}
                   </Typography>
@@ -227,7 +227,7 @@ const FusionStatusContent = () => {
                     <EpicList epics={filteredEpics} jiraBaseUrl={jiraBaseUrl} />
                   )}
                 </Box>
-                <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <Box sx={{ flex: 2, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                   <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
                     Stories
                   </Typography>
