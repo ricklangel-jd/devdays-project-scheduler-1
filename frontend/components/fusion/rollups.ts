@@ -3,6 +3,7 @@ import type { FusionEpic, FusionStory } from '@/shared/types';
 export interface ChartFilter {
   status?: string;
   team?: string;
+  initiativeKey?: string;
 }
 
 export interface PieSlice {
@@ -118,6 +119,12 @@ export const applyFilter = (
   if (!filter) return epics;
   const result: FusionEpic[] = [];
   for (const epic of epics) {
+    // Initiative is an epic-level attribute (the epic's parent key). Narrow
+    // out epics whose parent doesn't match before looking at their stories.
+    if (filter.initiativeKey) {
+      const epicInitiative = epic.initiativeKey || '(no initiative)';
+      if (epicInitiative !== filter.initiativeKey) continue;
+    }
     let matching = epic.stories;
     if (filter.team) {
       matching = matching.filter(s => teamForStory(s) === filter.team);

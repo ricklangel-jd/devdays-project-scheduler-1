@@ -126,6 +126,25 @@ const FusionStatusContent = () => {
     );
   }, []);
 
+  const handleInitiativeSegmentSelect = useCallback(
+    (initiativeKey: string, status: string) => {
+      setFilter(prev =>
+        prev?.initiativeKey === initiativeKey && prev?.status === status
+          ? null
+          : { initiativeKey, status }
+      );
+    },
+    []
+  );
+
+  const handleInitiativeSelect = useCallback((initiativeKey: string) => {
+    setFilter(prev =>
+      prev?.initiativeKey === initiativeKey && !prev.status
+        ? null
+        : { initiativeKey }
+    );
+  }, []);
+
   const displayedInitiatives = useMemo(() => {
     // Always include every entered key as a chip. If the server returned a
     // matching initiative, use its summary; if the key is unknown (or the
@@ -202,13 +221,18 @@ const FusionStatusContent = () => {
                   <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, minWidth: 440 }}>
                     <StatusPie
                       slices={pieData}
-                      selectedStatus={filter?.team ? null : filter?.status ?? null}
+                      selectedStatus={filter?.team || filter?.initiativeKey ? null : filter?.status ?? null}
                       onSelect={handlePieSelect}
                     />
                   </Box>
                   {initiativeKeys.length > 1 && (
                     <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, flex: 1, minWidth: 320 }}>
-                      <InitiativeStatusColumn stacks={initiativeBarData} />
+                      <InitiativeStatusColumn
+                        stacks={initiativeBarData}
+                        selected={filter}
+                        onSelectSegment={handleInitiativeSegmentSelect}
+                        onSelectInitiative={handleInitiativeSelect}
+                      />
                     </Box>
                   )}
                   <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, flex: 1, minWidth: 320 }}>
