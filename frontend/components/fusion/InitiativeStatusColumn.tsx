@@ -8,10 +8,15 @@ import type { InitiativeStack } from './rollups';
 
 interface InitiativeStatusColumnProps {
   stacks: InitiativeStack[];
+  initiativeNames: Record<string, string>; // key → summary
   selected: { initiativeKey?: string; status?: string } | null;
   onSelectSegment: (initiativeKey: string, status: string) => void;
   onSelectInitiative: (initiativeKey: string) => void;
 }
+
+const LABEL_MAX_CHARS = 14;
+const truncate = (s: string) =>
+  s.length > LABEL_MAX_CHARS ? `${s.slice(0, LABEL_MAX_CHARS - 1)}…` : s;
 
 const CHART_HEIGHT = 220;
 const COL_WIDTH = 48;
@@ -22,6 +27,7 @@ const LEFT_PAD = 40;
 
 const InitiativeStatusColumn = ({
   stacks,
+  initiativeNames,
   selected,
   onSelectSegment,
   onSelectInitiative,
@@ -120,11 +126,11 @@ const InitiativeStatusColumn = ({
                       style={{ cursor: 'pointer' }}
                       onClick={() => onSelectSegment(stack.initiativeKey, seg.status)}
                     >
-                      <title>{`${stack.initiativeKey} · ${seg.status}: ${Math.round(seg.value)}`}</title>
+                      <title>{`${initiativeNames[stack.initiativeKey] ?? stack.initiativeKey} · ${seg.status}: ${Math.round(seg.value)}`}</title>
                     </rect>
                   );
                 })}
-                {/* initiative label — clickable */}
+                {/* initiative label — clickable; shows summary, falls back to key */}
                 <text
                   x={xLeft + COL_WIDTH / 2}
                   y={TOP_PAD + innerHeight + 14}
@@ -135,7 +141,12 @@ const InitiativeStatusColumn = ({
                   style={{ cursor: 'pointer' }}
                   onClick={() => onSelectInitiative(stack.initiativeKey)}
                 >
-                  {stack.initiativeKey}
+                  {truncate(initiativeNames[stack.initiativeKey] ?? stack.initiativeKey)}
+                  <title>
+                    {initiativeNames[stack.initiativeKey]
+                      ? `${stack.initiativeKey} — ${initiativeNames[stack.initiativeKey]}`
+                      : stack.initiativeKey}
+                  </title>
                 </text>
                 <text
                   x={xLeft + COL_WIDTH / 2}

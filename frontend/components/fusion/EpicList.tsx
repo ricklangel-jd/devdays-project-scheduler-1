@@ -18,6 +18,7 @@ import type { FusionEpic } from '@/shared/types';
 interface EpicListProps {
   epics: FusionEpic[];
   jiraBaseUrl: string | undefined;
+  teamNames: Record<string, string>; // project key → project name
 }
 
 type SortField =
@@ -62,7 +63,8 @@ const compareEpics = (
   a: FusionEpic,
   b: FusionEpic,
   field: SortField,
-  direction: SortDirection
+  direction: SortDirection,
+  teamNames: Record<string, string>
 ): number => {
   const mul = direction === 'asc' ? 1 : -1;
   switch (field) {
@@ -75,7 +77,7 @@ const compareEpics = (
     case 'linkedVia':
       return mul * linkedViaSortKey(a).localeCompare(linkedViaSortKey(b));
     case 'team':
-      return mul * a.team.localeCompare(b.team);
+      return mul * (teamNames[a.team] ?? a.team).localeCompare(teamNames[b.team] ?? b.team);
     case 'status':
       return mul * a.status.localeCompare(b.status);
     case 'totalPoints':
@@ -89,7 +91,7 @@ const compareEpics = (
   }
 };
 
-const EpicList = ({ epics, jiraBaseUrl }: EpicListProps) => {
+const EpicList = ({ epics, jiraBaseUrl, teamNames }: EpicListProps) => {
   const [sortField, setSortField] = useState<SortField>('key');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
@@ -103,8 +105,8 @@ const EpicList = ({ epics, jiraBaseUrl }: EpicListProps) => {
   };
 
   const sortedEpics = useMemo(
-    () => [...epics].sort((a, b) => compareEpics(a, b, sortField, sortDirection)),
-    [epics, sortField, sortDirection]
+    () => [...epics].sort((a, b) => compareEpics(a, b, sortField, sortDirection, teamNames)),
+    [epics, sortField, sortDirection, teamNames]
   );
 
   if (epics.length === 0) {
@@ -205,7 +207,9 @@ const EpicList = ({ epics, jiraBaseUrl }: EpicListProps) => {
                     '—'
                   )}
                 </TableCell>
-                <TableCell sx={colSx}>{e.team}</TableCell>
+                <TableCell sx={colSx} title={teamNames[e.team] ? e.team : undefined}>
+                  {teamNames[e.team] ?? e.team}
+                </TableCell>
                 <TableCell sx={colSx}>{e.status}</TableCell>
                 <TableCell sx={{ ...colSx, textAlign: 'right' }}>{Math.round(e.totalPoints)}</TableCell>
                 <TableCell sx={colSx}>

@@ -8,10 +8,15 @@ import type { TeamStack } from './rollups';
 
 interface TeamStatusColumnProps {
   stacks: TeamStack[];
+  teamNames: Record<string, string>; // project key → project name
   selected: { team?: string; status?: string } | null;
   onSelectSegment: (team: string, status: string) => void;
   onSelectTeam: (team: string) => void;
 }
+
+const LABEL_MAX_CHARS = 14;
+const truncate = (s: string) =>
+  s.length > LABEL_MAX_CHARS ? `${s.slice(0, LABEL_MAX_CHARS - 1)}…` : s;
 
 const CHART_HEIGHT = 220;
 const COL_WIDTH = 48;
@@ -22,6 +27,7 @@ const LEFT_PAD = 40;
 
 const TeamStatusColumn = ({
   stacks,
+  teamNames,
   selected,
   onSelectSegment,
   onSelectTeam,
@@ -120,11 +126,11 @@ const TeamStatusColumn = ({
                       style={{ cursor: 'pointer' }}
                       onClick={() => onSelectSegment(stack.team, seg.status)}
                     >
-                      <title>{`${stack.team} · ${seg.status}: ${Math.round(seg.value)}`}</title>
+                      <title>{`${teamNames[stack.team] ?? stack.team} · ${seg.status}: ${Math.round(seg.value)}`}</title>
                     </rect>
                   );
                 })}
-                {/* team label — clickable */}
+                {/* team label — clickable; shows project name, falls back to code */}
                 <text
                   x={xLeft + COL_WIDTH / 2}
                   y={TOP_PAD + innerHeight + 14}
@@ -135,7 +141,12 @@ const TeamStatusColumn = ({
                   style={{ cursor: 'pointer' }}
                   onClick={() => onSelectTeam(stack.team)}
                 >
-                  {stack.team}
+                  {truncate(teamNames[stack.team] ?? stack.team)}
+                  <title>
+                    {teamNames[stack.team]
+                      ? `${stack.team} — ${teamNames[stack.team]}`
+                      : stack.team}
+                  </title>
                 </text>
                 <text
                   x={xLeft + COL_WIDTH / 2}

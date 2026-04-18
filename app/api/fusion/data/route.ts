@@ -191,7 +191,31 @@ export const GET = async (request: NextRequest) => {
       };
     });
 
-    const data: FusionData = { initiatives, epics };
+    // 6. Team names: resolve each story-derived team code to its JIRA
+    //    project name so the team chart and epics grid can show a readable
+    //    label. Fetch the project list once and build a key→name map,
+    //    keeping only teams that actually appear in this dataset.
+    const teamCodes = new Set<string>();
+    for (const epic of epics) {
+      for (const story of epic.stories) {
+        const idx = story.key.indexOf('-');
+        const code = idx > 0 ? story.key.slice(0, idx) : story.key;
+        teamCodes.add(code);
+      }
+    }
+    const teamNames: Record<string, string> = {};
+    if (teamCodes.size > 0) {
+      try {
+        const projects = await client.getProjects();
+        for (const p of projects) {
+          if (teamCodes.has(p.key)) teamNames[p.key] = p.name;
+        }
+      } catch {
+        // Non-fatal: fall back to codes if the project list call fails
+      }
+    }
+
+    const data: FusionData = { initiatives, epics, teamNames };
     return NextResponse.json(data);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';

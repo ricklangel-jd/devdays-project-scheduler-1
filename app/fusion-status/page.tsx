@@ -166,6 +166,12 @@ const FusionStatusContent = () => {
     () => rollupByInitiativeAndStatus(data?.epics),
     [data?.epics]
   );
+  const initiativeNames = useMemo<Record<string, string>>(() => {
+    const map: Record<string, string> = {};
+    if (data) for (const init of data.initiatives) map[init.key] = init.summary;
+    return map;
+  }, [data]);
+  const teamNames = data?.teamNames ?? {};
   const filteredEpics = useMemo(() => applyFilter(data?.epics, filter), [data?.epics, filter]);
   const filteredStories = useMemo(
     () => filteredEpics.flatMap(e => e.stories),
@@ -229,6 +235,7 @@ const FusionStatusContent = () => {
                     <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, flex: 1, minWidth: 320 }}>
                       <InitiativeStatusColumn
                         stacks={initiativeBarData}
+                        initiativeNames={initiativeNames}
                         selected={filter}
                         onSelectSegment={handleInitiativeSegmentSelect}
                         onSelectInitiative={handleInitiativeSelect}
@@ -238,6 +245,7 @@ const FusionStatusContent = () => {
                   <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, flex: 1, minWidth: 320 }}>
                     <TeamStatusColumn
                       stacks={barData}
+                      teamNames={teamNames}
                       selected={filter}
                       onSelectSegment={handleSegmentSelect}
                       onSelectTeam={handleTeamSelect}
@@ -259,7 +267,7 @@ const FusionStatusContent = () => {
                       No epics match this selection — click the selected chart element again to clear the filter.
                     </Alert>
                   ) : (
-                    <EpicList epics={filteredEpics} jiraBaseUrl={jiraBaseUrl} />
+                    <EpicList epics={filteredEpics} jiraBaseUrl={jiraBaseUrl} teamNames={teamNames} />
                   )}
                 </Box>
                 <Box sx={{ flex: 2, display: 'flex', flexDirection: 'column', minWidth: 0 }}>

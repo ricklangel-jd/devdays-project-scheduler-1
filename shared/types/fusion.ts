@@ -38,4 +38,5 @@ export interface FusionData {
     labels: string[];
   }[];
   epics: FusionEpic[];   // epics with status == "Canceled" excluded server-side
+  teamNames: Record<string, string>; // JIRA project key → project name for each team that contributed stories
 }
