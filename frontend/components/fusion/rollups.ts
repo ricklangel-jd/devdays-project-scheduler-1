@@ -16,6 +16,12 @@ export interface TeamStack {
   byStatus: Record<string, number>;
 }
 
+export interface InitiativeStack {
+  initiativeKey: string;
+  total: number;
+  byStatus: Record<string, number>;
+}
+
 // The "team" for a story is its JIRA project key — the prefix of its issue
 // key (e.g. "FOO-42" → "FOO"). Stories can cross projects from an epic's
 // project, so we derive this per story rather than inheriting from the epic.
@@ -64,6 +70,34 @@ export const rollupByTeamAndStatus = (
       stack.byStatus[story.status] =
         (stack.byStatus[story.status] ?? 0) + story.devDays;
       stacks.set(team, stack);
+    }
+  }
+  return Array.from(stacks.values()).sort((a, b) => b.total - a.total);
+};
+
+/**
+ * Roll up story points grouped by the epic's parent initiative, stacked by
+ * story status. Epics whose parent isn't one of the loaded initiatives
+ * (typically linked-in epics) fall under their actual parent key, or
+ * "(no initiative)" when the parent is missing entirely.
+ */
+export const rollupByInitiativeAndStatus = (
+  epics: FusionEpic[] | undefined
+): InitiativeStack[] => {
+  if (!epics || epics.length === 0) return [];
+  const stacks = new Map<string, InitiativeStack>();
+  for (const epic of epics) {
+    const initiativeKey = epic.initiativeKey || '(no initiative)';
+    for (const story of epic.stories) {
+      const stack = stacks.get(initiativeKey) ?? {
+        initiativeKey,
+        total: 0,
+        byStatus: {},
+      };
+      stack.total += story.devDays;
+      stack.byStatus[story.status] =
+        (stack.byStatus[story.status] ?? 0) + story.devDays;
+      stacks.set(initiativeKey, stack);
     }
   }
   return Array.from(stacks.values()).sort((a, b) => b.total - a.total);

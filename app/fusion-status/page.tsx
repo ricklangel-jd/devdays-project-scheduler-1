@@ -13,10 +13,12 @@ import {
   InitiativeChips,
   StatusPie,
   TeamStatusColumn,
+  InitiativeStatusColumn,
   EpicList,
   StoriesGrid,
   rollupByStatus,
   rollupByTeamAndStatus,
+  rollupByInitiativeAndStatus,
   applyFilter,
 } from '@/frontend/components';
 import type { ChartFilter } from '@/frontend/components';
@@ -141,6 +143,10 @@ const FusionStatusContent = () => {
 
   const pieData = useMemo(() => rollupByStatus(data?.epics), [data?.epics]);
   const barData = useMemo(() => rollupByTeamAndStatus(data?.epics), [data?.epics]);
+  const initiativeBarData = useMemo(
+    () => rollupByInitiativeAndStatus(data?.epics),
+    [data?.epics]
+  );
   const filteredEpics = useMemo(() => applyFilter(data?.epics, filter), [data?.epics, filter]);
   const filteredStories = useMemo(
     () => filteredEpics.flatMap(e => e.stories),
@@ -200,6 +206,11 @@ const FusionStatusContent = () => {
                       onSelect={handlePieSelect}
                     />
                   </Box>
+                  {initiativeKeys.length > 1 && (
+                    <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, flex: 1, minWidth: 320 }}>
+                      <InitiativeStatusColumn stacks={initiativeBarData} />
+                    </Box>
+                  )}
                   <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, flex: 1, minWidth: 320 }}>
                     <TeamStatusColumn
                       stacks={barData}
