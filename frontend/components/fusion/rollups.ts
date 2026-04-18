@@ -1,4 +1,4 @@
-import type { FusionEpic } from '@/shared/types';
+import type { FusionEpic, FusionStory } from '@/shared/types';
 
 export interface ChartFilter {
   status?: string;
@@ -15,6 +15,14 @@ export interface TeamStack {
   total: number;
   byStatus: Record<string, number>;
 }
+
+// The "team" for a story is its JIRA project key — the prefix of its issue
+// key (e.g. "FOO-42" → "FOO"). Stories can cross projects from an epic's
+// project, so we derive this per story rather than inheriting from the epic.
+const teamForStory = (story: FusionStory): string => {
+  const idx = story.key.indexOf('-');
+  return idx > 0 ? story.key.slice(0, idx) : story.key;
+};
 
 /**
  * Roll up story points (devDays) grouped by story status. Canceled stories
@@ -34,7 +42,10 @@ export const rollupByStatus = (epics: FusionEpic[] | undefined): PieSlice[] => {
 };
 
 /**
- * Roll up story points grouped by team (epic's team), stacked by story status.
+ * Roll up story points grouped by team, stacked by story status. "Team" is
+ * derived from each story's own JIRA project key, not the epic's — so stories
+ * that a team picked up from another project's epic still land in their own
+ * team's column.
  */
 export const rollupByTeamAndStatus = (
   epics: FusionEpic[] | undefined
@@ -43,25 +54,27 @@ export const rollupByTeamAndStatus = (
   const stacks = new Map<string, TeamStack>();
   for (const epic of epics) {
     for (const story of epic.stories) {
-      const stack = stacks.get(epic.team) ?? {
-        team: epic.team,
+      const team = teamForStory(story);
+      const stack = stacks.get(team) ?? {
+        team,
         total: 0,
         byStatus: {},
       };
       stack.total += story.devDays;
       stack.byStatus[story.status] =
         (stack.byStatus[story.status] ?? 0) + story.devDays;
-      stacks.set(epic.team, stack);
+      stacks.set(team, stack);
     }
   }
   return Array.from(stacks.values()).sort((a, b) => b.total - a.total);
 };
 
 /**
- * Apply the current chart filter to the epic list. When `status` is set, we
- * narrow each epic's `stories` array to the matching stories and drop epics
- * that have no matches — so the stories grid naturally shows the filtered
- * subset via `filteredEpics.flatMap(e => e.stories)`.
+ * Apply the current chart filter to the epic list. Both `team` and `status`
+ * now narrow the stories within each epic (team is a per-story attribute
+ * derived from the story's project key). An epic is kept only when it has at
+ * least one surviving story, so the stories grid and rollups stay in sync via
+ * `filteredEpics.flatMap(e => e.stories)`.
  */
 export const applyFilter = (
   epics: FusionEpic[] | undefined,
@@ -71,14 +84,19 @@ export const applyFilter = (
   if (!filter) return epics;
   const result: FusionEpic[] = [];
   for (const epic of epics) {
-    if (filter.team && epic.team !== filter.team) continue;
-    if (!filter.status) {
-      result.push(epic);
-      continue;
+    let matching = epic.stories;
+    if (filter.team) {
+      matching = matching.filter(s => teamForStory(s) === filter.team);
     }
-    const matching = epic.stories.filter(s => s.status === filter.status);
+    if (filter.status) {
+      matching = matching.filter(s => s.status === filter.status);
+    }
     if (matching.length === 0) continue;
-    result.push({ ...epic, stories: matching });
+    if (matching.length === epic.stories.length) {
+      result.push(epic);
+    } else {
+      result.push({ ...epic, stories: matching });
+    }
   }
   return result;
 };
