@@ -14,16 +14,17 @@ interface TeamStatusColumnProps {
   onSelectTeam: (team: string) => void;
 }
 
-const LABEL_MAX_CHARS = 14;
+const LABEL_MAX_CHARS = 24;
 const truncate = (s: string) =>
   s.length > LABEL_MAX_CHARS ? `${s.slice(0, LABEL_MAX_CHARS - 1)}…` : s;
 
-const CHART_HEIGHT = 220;
+const CHART_HEIGHT = 240;
 const COL_WIDTH = 48;
 const COL_GAP = 16;
 const TOP_PAD = 20;
-const BOTTOM_PAD = 40;
+const BOTTOM_PAD = 80;
 const LEFT_PAD = 40;
+const LABEL_ROTATE_DEG = -30;
 
 const TeamStatusColumn = ({
   stacks,
@@ -97,6 +98,9 @@ const TeamStatusColumn = ({
 
           {stacks.map((stack, colIdx) => {
             const xLeft = LEFT_PAD + colIdx * (COL_WIDTH + COL_GAP);
+            const cx = xLeft + COL_WIDTH / 2;
+            const topY = TOP_PAD + innerHeight - (stack.total / maxTotal) * innerHeight;
+            const labelAnchorY = TOP_PAD + innerHeight + 8;
             // Build segments ordered by allStatuses for stable stacking
             let cursorY = TOP_PAD + innerHeight;
             const segments = allStatuses
@@ -130,11 +134,22 @@ const TeamStatusColumn = ({
                     </rect>
                   );
                 })}
-                {/* team label — clickable; shows project name, falls back to code */}
+                {/* total label — sits above the column top */}
                 <text
-                  x={xLeft + COL_WIDTH / 2}
-                  y={TOP_PAD + innerHeight + 14}
+                  x={cx}
+                  y={topY - 4}
                   textAnchor="middle"
+                  fontSize={10}
+                  fill="#666"
+                >
+                  {Math.round(stack.total)}
+                </text>
+                {/* team label — angled; shows project name, falls back to code */}
+                <text
+                  x={cx}
+                  y={labelAnchorY}
+                  textAnchor="end"
+                  transform={`rotate(${LABEL_ROTATE_DEG} ${cx} ${labelAnchorY})`}
                   fontSize={11}
                   fontWeight={selected?.team === stack.team ? 700 : 400}
                   fill="#333"
@@ -147,15 +162,6 @@ const TeamStatusColumn = ({
                       ? `${stack.team} — ${teamNames[stack.team]}`
                       : stack.team}
                   </title>
-                </text>
-                <text
-                  x={xLeft + COL_WIDTH / 2}
-                  y={TOP_PAD + innerHeight + 28}
-                  textAnchor="middle"
-                  fontSize={10}
-                  fill="#666"
-                >
-                  {Math.round(stack.total)}
                 </text>
               </g>
             );
