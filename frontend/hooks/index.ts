@@ -11,3 +11,4 @@ export { useSprintMetricsData } from './useSprintMetricsData';
 export { useSprintPlanningData } from './useSprintPlanningData';
 export { useCapacityData } from './useCapacityData';
 export { useFusionData } from './useFusionData';
+export { useEffortData } from './useEffortData';

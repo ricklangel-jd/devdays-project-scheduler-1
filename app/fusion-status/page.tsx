@@ -6,6 +6,9 @@ import Alert from '@mui/material/Alert';
 import CircularProgress from '@mui/material/CircularProgress';
 import Typography from '@mui/material/Typography';
 import Skeleton from '@mui/material/Skeleton';
+import Fab from '@mui/material/Fab';
+import Tooltip from '@mui/material/Tooltip';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Header,
@@ -145,6 +148,11 @@ const FusionStatusContent = () => {
     );
   }, []);
 
+  const handleRefresh = useCallback(() => {
+    if (isLoading || initiativeKeys.length === 0) return;
+    load(initiativeKeys);
+  }, [isLoading, initiativeKeys, load]);
+
   const displayedInitiatives = useMemo(() => {
     // Always include every entered key as a chip. If the server returned a
     // matching initiative, use its summary; if the key is unknown (or the
@@ -267,7 +275,12 @@ const FusionStatusContent = () => {
                       No epics match this selection — click the selected chart element again to clear the filter.
                     </Alert>
                   ) : (
-                    <EpicList epics={filteredEpics} jiraBaseUrl={jiraBaseUrl} teamNames={teamNames} />
+                    <EpicList
+                      epics={filteredEpics}
+                      jiraBaseUrl={jiraBaseUrl}
+                      teamNames={teamNames}
+                      initiativeNames={initiativeNames}
+                    />
                   )}
                 </Box>
                 <Box sx={{ flex: 2, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -281,6 +294,20 @@ const FusionStatusContent = () => {
           </>
         )}
       </Box>
+
+      <Tooltip title="Refresh data from JIRA">
+        <span>
+          <Fab
+            color="primary"
+            aria-label="refresh"
+            onClick={handleRefresh}
+            disabled={isLoading || initiativeKeys.length === 0}
+            sx={{ position: 'fixed', bottom: 24, right: 24 }}
+          >
+            {isLoading ? <CircularProgress size={24} color="inherit" /> : <RefreshIcon />}
+          </Fab>
+        </span>
+      </Tooltip>
     </Box>
   );
 };

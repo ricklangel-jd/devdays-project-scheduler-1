@@ -63,6 +63,8 @@ export const QUERY_PARAM_KEYS = {
   CAP_SPRINT: 'capSprint',
   CAP_PI: 'capPi',
   PA_SPRINT: 'paSprint',
+  EWI_PROJECTS: 'ewiProjects',
+  EN_INITIATIVES: 'enInitiatives',
 } as const;
 
 /**

@@ -46,3 +46,13 @@ export { DEFAULT_APP_STATE, QUERY_PARAM_KEYS } from './app';
 
 // Fusion types
 export type { FusionStory, FusionEpic, FusionEpicLink, FusionData } from './fusion';
+
+// Effort Estimates types
+export type {
+  TshirtSize,
+  EffortStory,
+  EffortEpic,
+  EffortEpicLink,
+  EffortData,
+} from './effort';
+export { TSHIRT_SIZES, tshirtSizeFor } from './effort';

@@ -84,6 +84,10 @@ const NAV_MENUS = [
     label: 'Project Status',
     items: [
       { label: 'Initiative Status', path: '/initiative-status' },
+      { label: 'Fusion Status', path: '/fusion-status' },
+      { label: 'Epics Without Initiative', path: '/epics-without-initiative' },
+      { label: 'Estimates Needed', path: '/estimates-needed' },
+      { label: 'Effort Estimates', path: '/effort-estimates' },
     ],
   },
 ] as const;

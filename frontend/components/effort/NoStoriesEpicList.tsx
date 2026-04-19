@@ -9,45 +9,21 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TableSortLabel from '@mui/material/TableSortLabel';
-import LinearProgress from '@mui/material/LinearProgress';
 import Link from '@mui/material/Link';
 import Typography from '@mui/material/Typography';
-import Box from '@mui/material/Box';
-import type { FusionEpic } from '@/shared/types';
+import type { EffortEpic } from '@/shared/types';
 
-interface EpicListProps {
-  epics: FusionEpic[];
+interface NoStoriesEpicListProps {
+  epics: EffortEpic[];
   jiraBaseUrl: string | undefined;
-  teamNames: Record<string, string>; // project key → project name
-  initiativeNames: Record<string, string>; // initiative key → initiative summary
+  teamNames: Record<string, string>;
+  initiativeNames: Record<string, string>;
 }
 
-type SortField =
-  | 'key'
-  | 'summary'
-  | 'initiativeKey'
-  | 'linkedVia'
-  | 'team'
-  | 'status'
-  | 'totalPoints'
-  | 'percentComplete'
-  | 'updatedAt';
+type SortField = 'key' | 'summary' | 'initiativeKey' | 'team' | 'status' | 'updatedAt';
 type SortDirection = 'asc' | 'desc';
 
-const pctColor = (pct: number) => {
-  if (pct >= 80) return 'success';
-  if (pct >= 40) return 'primary';
-  return 'warning';
-};
-
-const percentOf = (e: FusionEpic): number =>
-  e.totalPoints === 0 ? 0 : (e.donePoints / e.totalPoints) * 100;
-
-const linkedViaSortKey = (e: FusionEpic): string =>
-  e.linkedVia?.[0]?.epicKey ?? '';
-
-// JIRA "updated" is ISO with timezone; Date.parse handles it, falls back to 0 for null/invalid
-const updatedAtTime = (e: FusionEpic): number => {
+const updatedAtTime = (e: EffortEpic): number => {
   if (!e.updatedAt) return 0;
   const t = Date.parse(e.updatedAt);
   return Number.isNaN(t) ? 0 : t;
@@ -61,8 +37,8 @@ const formatUpdatedAt = (iso: string | null): string => {
 };
 
 const compareEpics = (
-  a: FusionEpic,
-  b: FusionEpic,
+  a: EffortEpic,
+  b: EffortEpic,
   field: SortField,
   direction: SortDirection,
   teamNames: Record<string, string>,
@@ -81,16 +57,10 @@ const compareEpics = (
           initiativeNames[b.initiativeKey] ?? b.initiativeKey
         )
       );
-    case 'linkedVia':
-      return mul * linkedViaSortKey(a).localeCompare(linkedViaSortKey(b));
     case 'team':
       return mul * (teamNames[a.team] ?? a.team).localeCompare(teamNames[b.team] ?? b.team);
     case 'status':
       return mul * a.status.localeCompare(b.status);
-    case 'totalPoints':
-      return mul * (a.totalPoints - b.totalPoints);
-    case 'percentComplete':
-      return mul * (percentOf(a) - percentOf(b));
     case 'updatedAt':
       return mul * (updatedAtTime(a) - updatedAtTime(b));
     default:
@@ -98,9 +68,27 @@ const compareEpics = (
   }
 };
 
-const EpicList = ({ epics, jiraBaseUrl, teamNames, initiativeNames }: EpicListProps) => {
+const NoStoriesEpicList = ({
+  epics,
+  jiraBaseUrl,
+  teamNames,
+  initiativeNames,
+}: NoStoriesEpicListProps) => {
   const [sortField, setSortField] = useState<SortField>('key');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
+  const emptyEpics = useMemo(
+    () => epics.filter((e) => e.stories.length === 0),
+    [epics]
+  );
+
+  const sortedEpics = useMemo(
+    () =>
+      [...emptyEpics].sort((a, b) =>
+        compareEpics(a, b, sortField, sortDirection, teamNames, initiativeNames)
+      ),
+    [emptyEpics, sortField, sortDirection, teamNames, initiativeNames]
+  );
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -111,19 +99,11 @@ const EpicList = ({ epics, jiraBaseUrl, teamNames, initiativeNames }: EpicListPr
     }
   };
 
-  const sortedEpics = useMemo(
-    () =>
-      [...epics].sort((a, b) =>
-        compareEpics(a, b, sortField, sortDirection, teamNames, initiativeNames)
-      ),
-    [epics, sortField, sortDirection, teamNames, initiativeNames]
-  );
-
-  if (epics.length === 0) {
+  if (emptyEpics.length === 0) {
     return (
       <Paper variant="outlined" sx={{ p: 3, textAlign: 'center' }}>
         <Typography variant="body2" color="text.secondary">
-          No epics to display.
+          Every loaded epic has at least one non-canceled story.
         </Typography>
       </Paper>
     );
@@ -137,13 +117,9 @@ const EpicList = ({ epics, jiraBaseUrl, teamNames, initiativeNames }: EpicListPr
     whiteSpace: 'nowrap' as const,
   };
 
-  const headerCell = (
-    field: SortField,
-    label: string,
-    extraSx: Record<string, unknown> = {}
-  ) => (
+  const headerCell = (field: SortField, label: string) => (
     <TableCell
-      sx={{ ...headerSx, ...extraSx }}
+      sx={headerSx}
       sortDirection={sortField === field ? sortDirection : false}
     >
       <TableSortLabel
@@ -164,17 +140,13 @@ const EpicList = ({ epics, jiraBaseUrl, teamNames, initiativeNames }: EpicListPr
             {headerCell('key', 'Epic')}
             {headerCell('summary', 'Summary')}
             {headerCell('initiativeKey', 'Initiative')}
-            {headerCell('linkedVia', 'Linked To')}
             {headerCell('team', 'Team')}
             {headerCell('status', 'Status')}
-            {headerCell('totalPoints', 'Total Points', { textAlign: 'right' })}
-            {headerCell('percentComplete', '% Complete', { minWidth: 180 })}
             {headerCell('updatedAt', 'Last Changed')}
           </TableRow>
         </TableHead>
         <TableBody>
           {sortedEpics.map((e) => {
-            const pct = Math.round(percentOf(e));
             const keyCell = jiraBaseUrl ? (
               <Link href={`${jiraBaseUrl}/browse/${e.key}`} target="_blank" rel="noopener">
                 {e.key}
@@ -192,60 +164,10 @@ const EpicList = ({ epics, jiraBaseUrl, teamNames, initiativeNames }: EpicListPr
                 >
                   {initiativeNames[e.initiativeKey] ?? e.initiativeKey}
                 </TableCell>
-                <TableCell sx={colSx}>
-                  {e.linkedVia && e.linkedVia.length > 0 ? (
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-                      {e.linkedVia.map((l) => {
-                        const label = `${l.epicKey} (${l.linkType})`;
-                        return jiraBaseUrl ? (
-                          <Link
-                            key={`${l.epicKey}-${l.linkType}`}
-                            href={`${jiraBaseUrl}/browse/${l.epicKey}`}
-                            target="_blank"
-                            rel="noopener"
-                            sx={{ fontSize: '0.8rem' }}
-                          >
-                            {label}
-                          </Link>
-                        ) : (
-                          <Typography
-                            key={`${l.epicKey}-${l.linkType}`}
-                            variant="caption"
-                            component="span"
-                          >
-                            {label}
-                          </Typography>
-                        );
-                      })}
-                    </Box>
-                  ) : (
-                    '—'
-                  )}
-                </TableCell>
                 <TableCell sx={colSx} title={teamNames[e.team] ? e.team : undefined}>
                   {teamNames[e.team] ?? e.team}
                 </TableCell>
                 <TableCell sx={colSx}>{e.status}</TableCell>
-                <TableCell sx={{ ...colSx, textAlign: 'right' }}>{Math.round(e.totalPoints)}</TableCell>
-                <TableCell sx={colSx}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <Box sx={{ flex: 1 }}>
-                      <LinearProgress
-                        variant="determinate"
-                        value={pct}
-                        color={pctColor(pct)}
-                        sx={{ height: 8, borderRadius: 4 }}
-                      />
-                    </Box>
-                    <Typography
-                      variant="caption"
-                      fontWeight={600}
-                      sx={{ minWidth: 36, textAlign: 'right' }}
-                    >
-                      {pct}%
-                    </Typography>
-                  </Box>
-                </TableCell>
                 <TableCell sx={colSx}>{formatUpdatedAt(e.updatedAt)}</TableCell>
               </TableRow>
             );
@@ -256,4 +178,4 @@ const EpicList = ({ epics, jiraBaseUrl, teamNames, initiativeNames }: EpicListPr
   );
 };
 
-export default EpicList;
+export default NoStoriesEpicList;

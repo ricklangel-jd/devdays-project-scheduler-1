@@ -9,17 +9,17 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TableSortLabel from '@mui/material/TableSortLabel';
-import LinearProgress from '@mui/material/LinearProgress';
 import Link from '@mui/material/Link';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
-import type { FusionEpic } from '@/shared/types';
+import { TSHIRT_SIZES, type EffortEpic, type TshirtSize } from '@/shared/types';
+import { colorForSize } from './sizeColors';
 
-interface EpicListProps {
-  epics: FusionEpic[];
+interface EffortEpicListProps {
+  epics: EffortEpic[];
   jiraBaseUrl: string | undefined;
-  teamNames: Record<string, string>; // project key → project name
-  initiativeNames: Record<string, string>; // initiative key → initiative summary
+  teamNames: Record<string, string>;
+  initiativeNames: Record<string, string>;
 }
 
 type SortField =
@@ -29,25 +29,13 @@ type SortField =
   | 'linkedVia'
   | 'team'
   | 'status'
-  | 'totalPoints'
-  | 'percentComplete'
+  | 'totalStories'
   | 'updatedAt';
 type SortDirection = 'asc' | 'desc';
 
-const pctColor = (pct: number) => {
-  if (pct >= 80) return 'success';
-  if (pct >= 40) return 'primary';
-  return 'warning';
-};
+const linkedViaSortKey = (e: EffortEpic): string => e.linkedVia?.[0]?.epicKey ?? '';
 
-const percentOf = (e: FusionEpic): number =>
-  e.totalPoints === 0 ? 0 : (e.donePoints / e.totalPoints) * 100;
-
-const linkedViaSortKey = (e: FusionEpic): string =>
-  e.linkedVia?.[0]?.epicKey ?? '';
-
-// JIRA "updated" is ISO with timezone; Date.parse handles it, falls back to 0 for null/invalid
-const updatedAtTime = (e: FusionEpic): number => {
+const updatedAtTime = (e: EffortEpic): number => {
   if (!e.updatedAt) return 0;
   const t = Date.parse(e.updatedAt);
   return Number.isNaN(t) ? 0 : t;
@@ -61,8 +49,8 @@ const formatUpdatedAt = (iso: string | null): string => {
 };
 
 const compareEpics = (
-  a: FusionEpic,
-  b: FusionEpic,
+  a: EffortEpic,
+  b: EffortEpic,
   field: SortField,
   direction: SortDirection,
   teamNames: Record<string, string>,
@@ -87,10 +75,8 @@ const compareEpics = (
       return mul * (teamNames[a.team] ?? a.team).localeCompare(teamNames[b.team] ?? b.team);
     case 'status':
       return mul * a.status.localeCompare(b.status);
-    case 'totalPoints':
-      return mul * (a.totalPoints - b.totalPoints);
-    case 'percentComplete':
-      return mul * (percentOf(a) - percentOf(b));
+    case 'totalStories':
+      return mul * (a.totalStories - b.totalStories);
     case 'updatedAt':
       return mul * (updatedAtTime(a) - updatedAtTime(b));
     default:
@@ -98,7 +84,30 @@ const compareEpics = (
   }
 };
 
-const EpicList = ({ epics, jiraBaseUrl, teamNames, initiativeNames }: EpicListProps) => {
+const SizeCell = ({ size, count }: { size: TshirtSize; count: number }) => (
+  <Box
+    title={`${size}: ${count}`}
+    sx={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minWidth: 32,
+      px: 0.75,
+      py: 0.25,
+      borderRadius: 0.5,
+      fontSize: '0.78rem',
+      fontWeight: count > 0 ? 600 : 400,
+      bgcolor: count > 0 ? colorForSize(size) : 'transparent',
+      color: count > 0 ? 'white' : 'text.disabled',
+      border: count > 0 ? 'none' : '1px dashed',
+      borderColor: 'divider',
+    }}
+  >
+    {count}
+  </Box>
+);
+
+const EffortEpicList = ({ epics, jiraBaseUrl, teamNames, initiativeNames }: EffortEpicListProps) => {
   const [sortField, setSortField] = useState<SortField>('key');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
@@ -167,14 +176,17 @@ const EpicList = ({ epics, jiraBaseUrl, teamNames, initiativeNames }: EpicListPr
             {headerCell('linkedVia', 'Linked To')}
             {headerCell('team', 'Team')}
             {headerCell('status', 'Status')}
-            {headerCell('totalPoints', 'Total Points', { textAlign: 'right' })}
-            {headerCell('percentComplete', '% Complete', { minWidth: 180 })}
+            {headerCell('totalStories', 'Total', { textAlign: 'right' })}
+            {TSHIRT_SIZES.map((size) => (
+              <TableCell key={size} sx={{ ...headerSx, textAlign: 'center' }}>
+                {size}
+              </TableCell>
+            ))}
             {headerCell('updatedAt', 'Last Changed')}
           </TableRow>
         </TableHead>
         <TableBody>
           {sortedEpics.map((e) => {
-            const pct = Math.round(percentOf(e));
             const keyCell = jiraBaseUrl ? (
               <Link href={`${jiraBaseUrl}/browse/${e.key}`} target="_blank" rel="noopener">
                 {e.key}
@@ -226,26 +238,12 @@ const EpicList = ({ epics, jiraBaseUrl, teamNames, initiativeNames }: EpicListPr
                   {teamNames[e.team] ?? e.team}
                 </TableCell>
                 <TableCell sx={colSx}>{e.status}</TableCell>
-                <TableCell sx={{ ...colSx, textAlign: 'right' }}>{Math.round(e.totalPoints)}</TableCell>
-                <TableCell sx={colSx}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <Box sx={{ flex: 1 }}>
-                      <LinearProgress
-                        variant="determinate"
-                        value={pct}
-                        color={pctColor(pct)}
-                        sx={{ height: 8, borderRadius: 4 }}
-                      />
-                    </Box>
-                    <Typography
-                      variant="caption"
-                      fontWeight={600}
-                      sx={{ minWidth: 36, textAlign: 'right' }}
-                    >
-                      {pct}%
-                    </Typography>
-                  </Box>
-                </TableCell>
+                <TableCell sx={{ ...colSx, textAlign: 'right' }}>{e.totalStories}</TableCell>
+                {TSHIRT_SIZES.map((size) => (
+                  <TableCell key={size} sx={{ ...colSx, textAlign: 'center' }}>
+                    <SizeCell size={size} count={e.sizeCounts[size] ?? 0} />
+                  </TableCell>
+                ))}
                 <TableCell sx={colSx}>{formatUpdatedAt(e.updatedAt)}</TableCell>
               </TableRow>
             );
@@ -256,4 +254,4 @@ const EpicList = ({ epics, jiraBaseUrl, teamNames, initiativeNames }: EpicListPr
   );
 };
 
-export default EpicList;
+export default EffortEpicList;

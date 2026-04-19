@@ -94,6 +94,7 @@ interface JiraConfig {
   fieldPlannedStartDate?: string; // Optional: custom field to write scheduled start date
   fieldPlannedEndDate?: string; // Optional: custom field to write scheduled end date
   fieldPinnedStartDate?: string; // Optional: custom field for pinning ticket to exact start date
+  fieldTshirtSizing?: string; // Optional: T-Shirt Sizing dropdown custom field
   boardId: string;
 }
 
@@ -111,6 +112,7 @@ export const getJiraConfig = (): JiraConfig => {
   const fieldPlannedStartDate = process.env.JIRA_FIELD_PLANNED_START_DATE; // Optional
   const fieldPlannedEndDate = process.env.JIRA_FIELD_PLANNED_END_DATE; // Optional
   const fieldPinnedStartDate = process.env.JIRA_FIELD_PINNED_START_DATE; // Optional
+  const fieldTshirtSizing = process.env.JIRA_FIELD_TSHIRT_SIZING; // Optional
   const boardId = process.env.JIRA_BOARD_ID;
 
   if (!baseUrl || !email || !apiToken || !fieldDevDays || !boardId) {
@@ -131,6 +133,7 @@ export const getJiraConfig = (): JiraConfig => {
     fieldPlannedStartDate,
     fieldPlannedEndDate,
     fieldPinnedStartDate,
+    fieldTshirtSizing,
     boardId,
   };
 };
@@ -201,6 +204,7 @@ export class JiraClient {
       this.config.fieldEpicLink,
       ...(this.config.fieldSprintPointEstimate ? [this.config.fieldSprintPointEstimate] : []),
       ...(this.config.fieldPinnedStartDate ? [this.config.fieldPinnedStartDate] : []),
+      ...(this.config.fieldTshirtSizing ? [this.config.fieldTshirtSizing] : []),
     ];
 
     const allFields = [...new Set([...defaultFields, ...fields])];
@@ -548,6 +552,7 @@ export class JiraClient {
     plannedStartDate: this.config.fieldPlannedStartDate,
     plannedEndDate: this.config.fieldPlannedEndDate,
     pinnedStartDate: this.config.fieldPinnedStartDate,
+    tshirtSizing: this.config.fieldTshirtSizing,
   });
 
   /**
