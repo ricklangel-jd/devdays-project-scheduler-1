@@ -261,7 +261,7 @@ const EffortEstimatesContent = () => {
               isLoading && !hasEpics ? (
                 <Skeleton variant="rectangular" height={280} />
               ) : (
-                <SprintsNeededTab stacks={teamBarData} teamNames={teamNames} />
+                <SprintsNeededTab epics={data?.epics ?? []} teamNames={teamNames} />
               )
             ) : activeTab === 'details' ? (
               <>

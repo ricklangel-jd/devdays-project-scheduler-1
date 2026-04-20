@@ -50,9 +50,15 @@ export type { FusionStory, FusionEpic, FusionEpicLink, FusionData } from './fusi
 // Effort Estimates types
 export type {
   TshirtSize,
+  Classification,
   EffortStory,
   EffortEpic,
   EffortEpicLink,
   EffortData,
 } from './effort';
-export { TSHIRT_SIZES, tshirtSizeFor } from './effort';
+export {
+  TSHIRT_SIZES,
+  tshirtSizeFor,
+  CLASSIFICATIONS,
+  classificationFromLabels,
+} from './effort';

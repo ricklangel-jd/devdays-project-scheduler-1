@@ -3,6 +3,7 @@ import { getJiraClient, mapToInitiatives } from '@/backend/jira';
 import {
   TSHIRT_SIZES,
   tshirtSizeFor,
+  classificationFromLabels,
 } from '@/shared/types';
 import type {
   EffortData,
@@ -14,6 +15,20 @@ import type {
 } from '@/shared/types';
 
 const CANCELED_STATUS = 'Canceled';
+const DONE_CATEGORY_KEY = 'done';
+
+/**
+ * True when the issue is in a terminal (resolved / done / closed) state and
+ * should be excluded from effort rollups. Prefers the statusCategory when
+ * present; falls back to a hard-coded name list so unusual JIRA setups still
+ * get a reasonable answer.
+ */
+const isResolvedIssue = (status: { name?: string; statusCategory?: { key?: string } } | undefined): boolean => {
+  if (!status) return false;
+  if (status.statusCategory?.key === DONE_CATEGORY_KEY) return true;
+  const name = status.name?.toLowerCase() ?? '';
+  return name === 'resolved' || name === 'done' || name === 'closed';
+};
 
 /** Same linked-epic harvesting as the Fusion API so the datasets match. */
 const harvestLinkedEpicKeys = (
@@ -77,6 +92,7 @@ const toStory = (
   const devDays = typeof rawPts === 'number' && rawPts > 0 ? rawPts : 0;
   const tshirt = tshirtField ? extractTshirtValue(issue.fields[tshirtField]) : null;
   const size = tshirtSizeFor(tshirt);
+  const classification = classificationFromLabels(issue.fields.labels);
   return {
     key: issue.key,
     summary: issue.fields.summary,
@@ -86,6 +102,7 @@ const toStory = (
     devDays,
     tshirt,
     size,
+    classification,
   };
 };
 
@@ -166,12 +183,14 @@ export const GET = async (request: NextRequest) => {
     //    case getStoriesForEpics doesn't include it by default).
     const storyIssues = await client.getStoriesForEpics(epicKeys);
 
-    // 4. Group stories by epic key; ignore canceled stories.
+    // 4. Group stories by epic key; ignore canceled and resolved/done stories —
+    //    sizing rollups should only reflect remaining work.
     const storiesByEpic = new Map<string, EffortStory[]>();
     for (const issue of storyIssues) {
       const epicKey = resolveEpicKey(issue, epicLinkField);
       if (!epicKey || !epicKeySet.has(epicKey)) continue;
       if (issue.fields.status.name === CANCELED_STATUS) continue;
+      if (isResolvedIssue(issue.fields.status)) continue;
 
       const story = toStory(issue, epicKey, devDaysField, tshirtField);
       const arr = storiesByEpic.get(epicKey) ?? [];

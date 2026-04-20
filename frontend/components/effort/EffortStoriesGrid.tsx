@@ -147,11 +147,18 @@ const EffortStoriesGrid = ({ stories, jiraBaseUrl }: EffortStoriesGridProps) => 
             ) : (
               s.key
             );
+            const epicCell = jiraBaseUrl && s.epicKey ? (
+              <Link href={`${jiraBaseUrl}/browse/${s.epicKey}`} target="_blank" rel="noopener">
+                {s.epicKey}
+              </Link>
+            ) : (
+              s.epicKey
+            );
             return (
               <TableRow key={s.key} hover sx={{ '&:nth-of-type(even)': { bgcolor: 'grey.50' } }}>
                 <TableCell sx={colSx}>{keyCell}</TableCell>
                 <TableCell sx={colSx}>{s.summary}</TableCell>
-                <TableCell sx={colSx}>{s.epicKey}</TableCell>
+                <TableCell sx={colSx}>{epicCell}</TableCell>
                 <TableCell sx={colSx}>{s.status}</TableCell>
                 <TableCell sx={colSx}>{s.assignee ?? '—'}</TableCell>
                 <TableCell sx={{ ...colSx, textAlign: 'center' }}>

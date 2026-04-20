@@ -66,7 +66,7 @@ interface UseSprintMetricsDataResult {
   data: SprintMetricsData | null;
   isLoading: boolean;
   error: string | null;
-  generate: (selections: Selection[], sprintsBack: number) => Promise<void>;
+  generate: (selections: Selection[], sprintsBack: number, options?: { force?: boolean }) => Promise<void>;
   clear: () => void;
 }
 
@@ -77,7 +77,11 @@ export const useSprintMetricsData = (): UseSprintMetricsDataResult => {
 
   const cachedDataRef = useRef<CachedData | null>(null);
 
-  const generate = useCallback(async (selections: Selection[], sprintsBack: number) => {
+  const generate = useCallback(async (
+    selections: Selection[],
+    sprintsBack: number,
+    options: { force?: boolean } = {}
+  ) => {
     // Build a deterministic cache key
     const cacheKey = JSON.stringify({
       selections: selections
@@ -87,11 +91,13 @@ export const useSprintMetricsData = (): UseSprintMetricsDataResult => {
       sprintsBack,
     });
 
-    // Check cache
-    const cached = cachedDataRef.current;
-    if (cached && cached.cacheKey === cacheKey) {
-      setData(cached.data);
-      return;
+    // Check cache unless caller asked to force a refresh
+    if (!options.force) {
+      const cached = cachedDataRef.current;
+      if (cached && cached.cacheKey === cacheKey) {
+        setData(cached.data);
+        return;
+      }
     }
 
     setIsLoading(true);

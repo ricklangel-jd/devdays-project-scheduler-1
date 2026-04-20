@@ -24,10 +24,12 @@ import Divider from '@mui/material/Divider';
 import Collapse from '@mui/material/Collapse';
 import Tooltip from '@mui/material/Tooltip';
 import IconButton from '@mui/material/IconButton';
+import Fab from '@mui/material/Fab';
 import AddIcon from '@mui/icons-material/Add';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { Header } from '@/frontend/components';
 import ProjectSearch from '@/frontend/components/sidebar/ProjectSearch';
 import BoardSelector from '@/frontend/components/sidebar/BoardSelector';
@@ -375,6 +377,15 @@ const SprintMetricsContent = () => {
     );
   }, [selections, sprintsBack, generate]);
 
+  const handleRefresh = useCallback(() => {
+    if (selections.length === 0 || isLoading) return;
+    generate(
+      selections.map((s) => ({ projectKey: s.projectKey, boardId: s.boardId, projectName: s.projectName })),
+      sprintsBack,
+      { force: true }
+    );
+  }, [selections, sprintsBack, isLoading, generate]);
+
   // Memoized capacity getter
   const getCapacity = useCallback(
     (projectKey: string): number => capacities.get(projectKey) ?? 30,
@@ -584,6 +595,20 @@ const SprintMetricsContent = () => {
           <EngOutputsVsGoalChart data={data} />
         )}
       </Box>
+
+      <Tooltip title="Refresh data from JIRA">
+        <span>
+          <Fab
+            color="primary"
+            aria-label="refresh"
+            onClick={handleRefresh}
+            disabled={isLoading || selections.length === 0}
+            sx={{ position: 'fixed', bottom: 24, right: 24 }}
+          >
+            {isLoading ? <CircularProgress size={24} color="inherit" /> : <RefreshIcon />}
+          </Fab>
+        </span>
+      </Tooltip>
     </Box>
   );
 };
@@ -679,7 +704,7 @@ const LegendPanel = () => {
           <Typography variant="caption" component="div" color="text.secondary" sx={{ lineHeight: 1.65, pl: 1 }}>
             <b>Day 1 Pts</b> — stories in the sprint at the official start (Wed noon); excludes stories added after the cutoff and stories punted before the cutoff<br />
             <b>Scope In</b> — points added to the sprint after Wed noon<br />
-            <b>Scope Out</b> = Day 1 Pts + Scope In − Carryover (All)<br />
+            <b>Scope Out</b> — points for work items moved out of the sprint after the day-1 cutoff; excludes last-day punts (those count as carryover) and early punts<br />
             <b>Capacity</b> — total engineer-days entered in the sidebar (or from the Jira capacity story)
           </Typography>
 

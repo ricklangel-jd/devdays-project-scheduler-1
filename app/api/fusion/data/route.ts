@@ -12,6 +12,17 @@ const DONE_CATEGORY_KEY = 'done';
 const CANCELED_STATUS = 'Canceled';
 
 /**
+ * True when a status represents a canceled issue. Matches either spelling
+ * ("Canceled" / "Cancelled") case-insensitively so stories aren't silently
+ * kept due to a JIRA status-name variant.
+ */
+const isCanceledStatus = (name: string | undefined): boolean => {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  return lower === 'canceled' || lower === 'cancelled';
+};
+
+/**
  * Scan initiative-epic issuelinks and collect every other issue they link to.
  * The map key is the linked issue's key (which may or may not turn out to be
  * an Epic — we filter that at the JQL level when we fetch). The value tracks
@@ -154,7 +165,7 @@ export const GET = async (request: NextRequest) => {
     for (const issue of storyIssues) {
       const epicKey = resolveEpicKey(issue, epicLinkField);
       if (!epicKey || !epicKeySet.has(epicKey)) continue;
-      if (issue.fields.status.name === CANCELED_STATUS) continue;
+      if (isCanceledStatus(issue.fields.status.name)) continue;
 
       const story = toStory(issue, epicKey, devDaysField);
 

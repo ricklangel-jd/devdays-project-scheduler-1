@@ -9,6 +9,35 @@ import type { JiraInitiative } from './jira';
 export type TshirtSize = 'XS' | 'S' | 'M' | 'L' | 'XL' | 'None';
 
 /**
+ * MoSCoW classification derived from an issue's labels. "Unclassified" means
+ * no Must-Have / Should-Have / Could-Have label was present.
+ */
+export type Classification = 'Must-Have' | 'Should-Have' | 'Could-Have' | 'Unclassified';
+
+export const CLASSIFICATIONS: readonly Classification[] = [
+  'Must-Have',
+  'Should-Have',
+  'Could-Have',
+  'Unclassified',
+] as const;
+
+/**
+ * Inspect an issue's labels and return the highest-priority MoSCoW
+ * classification found. Labels are matched case-insensitively and tolerate
+ * hyphen / underscore / no-separator variants ("MustHave", "must_have").
+ */
+export const classificationFromLabels = (labels: string[] | undefined): Classification => {
+  if (!labels) return 'Unclassified';
+  // Normalize once; check in priority order so a story with multiple labels
+  // lands in the most important tier.
+  const normalized = labels.map((l) => l.trim().toLowerCase().replace(/[_\s]/g, '-'));
+  if (normalized.some((l) => l === 'must-have' || l === 'musthave')) return 'Must-Have';
+  if (normalized.some((l) => l === 'should-have' || l === 'shouldhave')) return 'Should-Have';
+  if (normalized.some((l) => l === 'could-have' || l === 'couldhave')) return 'Could-Have';
+  return 'Unclassified';
+};
+
+/**
  * Ordered size list. "None" (no size, no points) sorts last so it renders at
  * the bottom of stacked bars and to the right in pie legends.
  */
@@ -41,8 +70,9 @@ export interface EffortStory {
   status: string;
   assignee: string | null;
   devDays: number;
-  tshirt: string | null;   // raw value from the dropdown, or null
-  size: TshirtSize;        // bucketed — always set
+  tshirt: string | null;        // raw value from the dropdown, or null
+  size: TshirtSize;             // bucketed — always set
+  classification: Classification; // Must / Should / Could / Unclassified
 }
 
 export interface EffortEpicLink {

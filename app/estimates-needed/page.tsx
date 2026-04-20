@@ -17,7 +17,13 @@ import Chip from '@mui/material/Chip';
 import Link from '@mui/material/Link';
 import Fab from '@mui/material/Fab';
 import Tooltip from '@mui/material/Tooltip';
+import Accordion from '@mui/material/Accordion';
+import AccordionSummary from '@mui/material/AccordionSummary';
+import AccordionDetails from '@mui/material/AccordionDetails';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { Header, InitiativeControls, InitiativeChips } from '@/frontend/components';
 import { useAppState } from '@/frontend/hooks';
 import { QUERY_PARAM_KEYS } from '@/shared/types';
@@ -249,6 +255,7 @@ const EstimatesNeededContent = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedEpicKey, setSelectedEpicKey] = useState<string | null>(null);
+  const [excludeBlocked, setExcludeBlocked] = useState(false);
 
   // Keep URL param in sync
   useEffect(() => {
@@ -290,22 +297,43 @@ const EstimatesNeededContent = () => {
     load(initiativeKeys, projectKey);
   }, [initiativeKeys, projectKey, load]);
 
-  // Reset selection whenever the data changes
+  // Apply the "exclude blocked" toggle: drop any story in Blocked status, and
+  // drop epics that are no longer interesting afterwards. An epic is dropped
+  // when the filter leaves it with zero stories overall, or zero stories
+  // still missing a T-shirt size — in either case there's nothing to act on.
+  const visibleEpics = useMemo(() => {
+    if (!data) return [];
+    if (!excludeBlocked) return data.epics;
+    const out: EstimatesNeededEpic[] = [];
+    for (const epic of data.epics) {
+      const kept = epic.stories.filter(
+        (s) => s.status.toLowerCase() !== 'blocked'
+      );
+      if (kept.length === 0) continue;
+      const missing = kept.filter((s) => s.isMissingTshirt).length;
+      if (missing === 0) continue;
+      out.push({
+        ...epic,
+        stories: kept,
+        totalStories: kept.length,
+        missingTshirtCount: missing,
+      });
+    }
+    return out;
+  }, [data, excludeBlocked]);
+
+  // Reset selection whenever the visible epic set changes (either fresh
+  // data or the "exclude blocked" toggle trimmed the current selection).
   useEffect(() => {
-    if (!data) {
+    if (visibleEpics.length === 0) {
       setSelectedEpicKey(null);
       return;
     }
-    if (data.epics.length === 0) {
-      setSelectedEpicKey(null);
-      return;
-    }
-    // If the previously selected epic isn't in the new set, pick the first.
     setSelectedEpicKey((prev) => {
-      if (prev && data.epics.some((e) => e.epicKey === prev)) return prev;
-      return data.epics[0].epicKey;
+      if (prev && visibleEpics.some((e) => e.epicKey === prev)) return prev;
+      return visibleEpics[0].epicKey;
     });
-  }, [data]);
+  }, [visibleEpics]);
 
   const addInitiative = useCallback((init: JiraInitiative) => {
     setInitiativeKeys((prev) => (prev.includes(init.key) ? prev : [...prev, init.key]));
@@ -344,9 +372,9 @@ const EstimatesNeededContent = () => {
   }, [data, initiativeKeys]);
 
   const selectedEpic = useMemo(() => {
-    if (!data || !selectedEpicKey) return null;
-    return data.epics.find((e) => e.epicKey === selectedEpicKey) ?? null;
-  }, [data, selectedEpicKey]);
+    if (!selectedEpicKey) return null;
+    return visibleEpics.find((e) => e.epicKey === selectedEpicKey) ?? null;
+  }, [visibleEpics, selectedEpicKey]);
 
   const emptyState = !projectKey
     ? 'Select a project at the top of the page.'
@@ -364,10 +392,24 @@ const EstimatesNeededContent = () => {
           onAdd={addInitiative}
           onBulkAdd={bulkAddInitiatives}
         />
-        <InitiativeChips
-          initiatives={displayedInitiatives}
-          onRemove={removeInitiative}
-        />
+        {initiativeKeys.length > 0 && (
+          <Accordion defaultExpanded={false} disableGutters square sx={{ bgcolor: 'transparent' }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 0, minHeight: 0 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                  Loaded Initiatives
+                </Typography>
+                <Chip label={initiativeKeys.length} size="small" variant="outlined" />
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails sx={{ px: 0, pt: 0 }}>
+              <InitiativeChips
+                initiatives={displayedInitiatives}
+                onRemove={removeInitiative}
+              />
+            </AccordionDetails>
+          </Accordion>
+        )}
 
         {error && <Alert severity="error">{error}</Alert>}
 
@@ -385,18 +427,37 @@ const EstimatesNeededContent = () => {
             </Typography>
           </Box>
         ) : data ? (
-          <Box sx={{ display: 'flex', gap: 2, flex: 1, minHeight: 400, alignItems: 'stretch' }}>
-            <Box sx={{ flex: 1, minWidth: 0, display: 'flex' }}>
-              <EpicsGrid
-                epics={data.epics}
-                selectedEpicKey={selectedEpicKey}
-                onSelect={setSelectedEpicKey}
+          <>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    size="small"
+                    checked={excludeBlocked}
+                    onChange={(e) => setExcludeBlocked(e.target.checked)}
+                  />
+                }
+                label="Exclude blocked stories"
               />
+              {excludeBlocked && (
+                <Typography variant="caption" color="text.secondary">
+                  Epics with no remaining non-blocked stories are hidden.
+                </Typography>
+              )}
             </Box>
-            <Box sx={{ flex: 1, minWidth: 0, display: 'flex' }}>
-              <StoriesPanel epic={selectedEpic} />
+            <Box sx={{ display: 'flex', gap: 2, flex: 1, minHeight: 400, alignItems: 'stretch' }}>
+              <Box sx={{ flex: 1, minWidth: 0, display: 'flex' }}>
+                <EpicsGrid
+                  epics={visibleEpics}
+                  selectedEpicKey={selectedEpicKey}
+                  onSelect={setSelectedEpicKey}
+                />
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 0, display: 'flex' }}>
+                <StoriesPanel epic={selectedEpic} />
+              </Box>
             </Box>
-          </Box>
+          </>
         ) : null}
       </Box>
 

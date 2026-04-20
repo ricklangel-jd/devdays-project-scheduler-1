@@ -8,7 +8,12 @@ import Typography from '@mui/material/Typography';
 import Skeleton from '@mui/material/Skeleton';
 import Fab from '@mui/material/Fab';
 import Tooltip from '@mui/material/Tooltip';
+import Accordion from '@mui/material/Accordion';
+import AccordionSummary from '@mui/material/AccordionSummary';
+import AccordionDetails from '@mui/material/AccordionDetails';
+import Chip from '@mui/material/Chip';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Header,
@@ -201,10 +206,24 @@ const FusionStatusContent = () => {
           onAdd={addInitiative}
           onBulkAdd={bulkAddInitiatives}
         />
-        <InitiativeChips
-          initiatives={displayedInitiatives}
-          onRemove={removeInitiative}
-        />
+        {initiativeKeys.length > 0 && (
+          <Accordion defaultExpanded={false} disableGutters square sx={{ bgcolor: 'transparent' }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 0, minHeight: 0 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                  Loaded Initiatives
+                </Typography>
+                <Chip label={initiativeKeys.length} size="small" variant="outlined" />
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails sx={{ px: 0, pt: 0 }}>
+              <InitiativeChips
+                initiatives={displayedInitiatives}
+                onRemove={removeInitiative}
+              />
+            </AccordionDetails>
+          </Accordion>
+        )}
 
         {error && <Alert severity="error">{error}</Alert>}
 

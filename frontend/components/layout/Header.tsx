@@ -62,7 +62,6 @@ const NAV_MENUS = [
     label: 'Planning',
     items: [
       { label: 'Schedule View', path: '/' },
-      { label: 'Sprint View', path: '/sprint-view' },
       { label: 'Capacity v Demand', path: '/capacity-v-demand' },
       { label: 'PI Planning', path: '/pi-planning' },
       { label: 'Sprint Planning', path: '/sprint-planning' },
@@ -77,7 +76,6 @@ const NAV_MENUS = [
       { label: 'Sprint Metrics', path: '/sprint-metrics' },
       { label: 'PI Status', path: '/pi-status' },
       { label: 'Pointing Accuracy', path: '/pointing-accuracy' },
-      { label: 'Epics Checks', path: '/epics-checks' },
     ],
   },
   {
@@ -85,9 +83,16 @@ const NAV_MENUS = [
     items: [
       { label: 'Initiative Status', path: '/initiative-status' },
       { label: 'Fusion Status', path: '/fusion-status' },
+      { label: 'Effort Estimates', path: '/effort-estimates' },
+    ],
+  },
+  {
+    label: 'Data Integrity',
+    items: [
+      { label: 'Sprint View', path: '/sprint-view' },
+      { label: 'Epics Checks', path: '/epics-checks' },
       { label: 'Epics Without Initiative', path: '/epics-without-initiative' },
       { label: 'Estimates Needed', path: '/estimates-needed' },
-      { label: 'Effort Estimates', path: '/effort-estimates' },
     ],
   },
 ] as const;

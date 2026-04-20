@@ -562,6 +562,10 @@ export const POST = async (request: NextRequest) => {
         let resolvedPoints = 0;
         let lastDayPoints = 0;
         let scopeChangeInPoints = 0;
+        // Scope Out = any work item moved out of the sprint after the day-1
+        // cutoff, excluding last-day punts (which count as carryover) and
+        // early punts (removed before the cutoff — never committed).
+        // Accumulated per-issue below across both day-1 and scope-in punts.
         let scopeChangeOutPoints = 0;
         const issues: SprintMetricsIssue[] = [];
 
@@ -648,11 +652,50 @@ export const POST = async (request: NextRequest) => {
             lastDayPoints += points;
             puntedCategories.push('lastDay');
           } else {
-            // Committed day-1 work removed mid-sprint = scope out
+            // Day-1 work removed mid-sprint (after cutoff, before last day)
+            // — counts as scope out.
             scopeChangeOutPoints += points;
             puntedCategories.push('scopeChangeOut');
           }
           issues.push({ key: ticket.key, summary: ticket.summary, sprintName: sprint.name, points, categories: puntedCategories, assignee: ticket.assignee ?? null });
+        }
+
+        // ── Scope-in items that were also punted (scope out for non-day-1 work) ──
+        // A story added after the day-1 cutoff and later removed from the sprint
+        // also counts as scope out — as long as the removal was after the cutoff
+        // and it wasn't a last-day punt (which is carryover). Fetch and classify
+        // these here because they're not in `puntedIssues` (which covers day-1
+        // only) and not in `issuesResponse.issues` (which is the current roster).
+        const reportPuntedKeys = new Set(
+          (sprintReport.contents.puntedIssues ?? []).map((i) => i.key)
+        );
+        const scopeInPuntedKeys = new Set(
+          [...reportPuntedKeys].filter((k) => addedKeys.has(k) && !day1Keys.has(k))
+        );
+        if (scopeInPuntedKeys.size > 0) {
+          const scopeInJql = `issuekey in (${[...scopeInPuntedKeys].join(',')})`;
+          const scopeInPuntedIssues = (await client.searchAllIssues(scopeInJql)).issues;
+
+          const { earlyPunted: siEarly, lastDayPunted: siLastDay } =
+            await analyzePuntedIssues(scopeInPuntedKeys, sprint.id, day1Cutoff, sprintEndDatePart, client);
+
+          for (const issue of scopeInPuntedIssues) {
+            const { ticket } = mapToTicketAutoEpic(issue, fieldConfig);
+            if (isCanceledStatus(ticket.status)) continue;
+            if (siEarly.has(ticket.key)) continue;
+            if (siLastDay.has(ticket.key)) continue;
+
+            const pts = computePoints(issue, ticket.key, fieldConfig);
+            scopeChangeOutPoints += pts;
+            issues.push({
+              key: ticket.key,
+              summary: ticket.summary,
+              sprintName: sprint.name,
+              points: pts,
+              categories: ['scopeChange', 'scopeChangeOut'],
+              assignee: ticket.assignee ?? null,
+            });
+          }
         }
 
         // Carryover = all stories not completed at sprint end:
@@ -749,10 +792,6 @@ export const POST = async (request: NextRequest) => {
             ? [...engineerOutputMap.values()].sort((a, b) => a.name.localeCompare(b.name))
             : null;
 
-        // Scope Out = Day 1 Pts + Scope In - Carryover (All)
-        // Represents the net work that left the sprint without carrying over.
-        const derivedScopeOut = day1Points + scopeChangeInPoints - carryoverAllPoints;
-
         result.set(offset, {
           projectKey,
           projectName: projectName ?? projectKey,
@@ -764,7 +803,7 @@ export const POST = async (request: NextRequest) => {
           resolvedPoints,
           lastDayPoints,
           scopeChangeInPoints,
-          scopeChangeOutPoints: derivedScopeOut,
+          scopeChangeOutPoints,
           carryoverPoints,
           carryoverAllPoints,
           serviceDeskHoursResolved,
